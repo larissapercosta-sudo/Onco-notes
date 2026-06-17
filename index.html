@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="theme-color" content="#1a1a2e"/>
+<title>OncoNotes 📓</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Lora', serif; background: #f5f5f0; }
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: #f0f0ec; }
+  ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 10px; }
+  textarea, input, select { outline: none; font-family: 'Lora', serif; }
+  button { cursor: pointer; font-family: 'Lora', serif; }
+  button:focus { outline: none; }
+  .note-card { transition: box-shadow 0.2s, transform 0.2s; }
+  .note-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.08); transform: translateY(-1px); }
+  .tag { display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:20px;font-size:10px;font-family:'DM Mono',monospace;font-weight:600;letter-spacing:0.5px; }
+  .mono { font-family: 'DM Mono', monospace; }
+  @media(max-width:700px){
+    .hide-mobile { display: none !important; }
+    .header-stats { display: none !important; }
+    .grid-3 { grid-template-columns: 1fr !important; }
+    .grid-2 { grid-template-columns: 1fr !important; }
+    .main-layout { flex-direction: column !important; }
+    .filter-sidebar { width: 100% !important; border-right: none !important; border-bottom: 1.5px solid #e8e8e4 !important; max-height: 220px !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo } = React;
+
+// ── Constantes ──────────────────────────────────────────────────────────────
+const TUMOR_GROUPS = [
+  { id:'mama',       label:'Mama',           emoji:'🎗️', color:'#E91E8C' },
+  { id:'pulmao',     label:'Pulmão',         emoji:'🫁', color:'#1E88E5' },
+  { id:'colorretal', label:'Colorretal',     emoji:'🟤', color:'#795548' },
+  { id:'prostata',   label:'Próstata',       emoji:'🔵', color:'#1565C0' },
+  { id:'hemato',     label:'Hematologia',    emoji:'🩸', color:'#C62828' },
+  { id:'gastrico',   label:'Gástrico/GEJ',   emoji:'🟡', color:'#F9A825' },
+  { id:'ovario',     label:'Ovário',         emoji:'🟣', color:'#7B1FA2' },
+  { id:'figado',     label:'Fígado/Biliar',  emoji:'🟠', color:'#E65100' },
+  { id:'rim',        label:'Rim/Urológico',  emoji:'🫘', color:'#00838F' },
+  { id:'snc',        label:'SNC',            emoji:'🧠', color:'#4527A0' },
+  { id:'pele',       label:'Pele/Melanoma',  emoji:'☀️', color:'#FF8F00' },
+  { id:'outros',     label:'Outros',         emoji:'🔬', color:'#546E7A' },
+];
+const SCENARIOS = ['Neoadjuvante','Adjuvante','1ª Linha Metastático','2ª Linha Metastático','3ª Linha+','Localizado','Geral'];
+const THEMES = ['CDK4/6','Imunoterapia','Anti-HER2','PARP','PI3K/AKT/mTOR','Anti-VEGF','ADC','Hormonioterapia','Quimioterapia','Cirurgia/RT','Biomarcadores','ESR1/PIK3CA','ALK/ROS1/EGFR','BRCA','Outro'];
+const SOURCE_TYPES = [
+  { id:'teoc',   label:'OC-TEOC 2025',     emoji:'📚', color:'#5C6BC0' },
+  { id:'trial',  label:'Ensaio Clínico',   emoji:'🔬', color:'#00838F' },
+  { id:'review', label:'Revisão/Guideline',emoji:'📋', color:'#43A047' },
+  { id:'case',   label:'Caso Clínico',     emoji:'🩺', color:'#E65100' },
+  { id:'note',   label:'Nota Pessoal',     emoji:'✏️', color:'#8D6E63' },
+];
+const CARD_COLORS = [
+  { id:'blue',   bg:'#E3F2FD', border:'#1E88E5' },
+  { id:'green',  bg:'#E8F5E9', border:'#43A047' },
+  { id:'orange', bg:'#FFF3E0', border:'#E65100' },
+  { id:'red',    bg:'#FFEBEE', border:'#D32F2F' },
+  { id:'purple', bg:'#F3E5F5', border:'#7B1FA2' },
+  { id:'teal',   bg:'#E0F2F1', border:'#00838F' },
+];
+const IMPORTANCE = [
+  { id:3, label:'🔴 Alta',  color:'#D32F2F' },
+  { id:2, label:'🟡 Média', color:'#F9A825' },
+  { id:1, label:'🟢 Baixa', color:'#43A047' },
+];
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
+
+// ── Storage ─────────────────────────────────────────────────────────────────
+const KEY = 'onconotes_v1';
+const loadNotes = () => { try { const r=localStorage.getItem(KEY); return r?JSON.parse(r):[]; } catch{return[];} };
+const saveNotes = (n) => { try{localStorage.setItem(KEY,JSON.stringify(n));}catch{} };
+const exportJSON = (notes) => {
+  const blob=new Blob([JSON.stringify(notes,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=`onconotes-${new Date().toISOString().slice(0,10)}.json`; a.click();
+};
+const importJSON = (file) => new Promise((res,rej)=>{
+  const r=new FileReader();
+  r.onload=e=>{try{res(JSON.parse(e.target.result));}catch{rej(new Error('JSON inválido'));}};
+  r.onerror=()=>rej(new Error('Erro')); r.readAsText(file);
+});
+
+// ── RichText ────────────────────────────────────────────────────────────────
+function RichText({text}){
+  if(!text) return null;
+  const isSep=l=>/^\|[\s\-|:]+\|$/.test(l.trim());
+  const isRow=l=>l.trim().startsWith('|')&&l.trim().endsWith('|');
+  const parseRow=l=>l.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+  const lines=text.split('\n'); const els=[]; let tBuf=[]; let i=0;
+  const flushTable=()=>{
+    const rows=tBuf.filter(l=>!isSep(l));
+    if(rows.length<2){tBuf.forEach((l,j)=>els.push(<p key={`pt${i}${j}`} style={{fontSize:13,lineHeight:1.75,marginBottom:3,color:'#444',fontFamily:'Lora,serif'}}>{l}</p>));tBuf=[];return;}
+    const hdrs=parseRow(rows[0]); const body=rows.slice(1);
+    els.push(
+      <div key={`t${i}`} style={{overflowX:'auto',margin:'10px 0 14px'}}>
+        <table style={{borderCollapse:'collapse',fontSize:12,width:'100%'}}>
+          <thead><tr>{hdrs.map((h,ci)=><th key={ci} style={{padding:'7px 11px',background:'#1a1a2e',color:'#fff',textAlign:'left',fontSize:10,fontFamily:"'DM Mono',monospace",borderRight:'1px solid #2a2a3e',whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+          <tbody>{body.map((row,ri)=>{const cells=parseRow(row);return(
+            <tr key={ri} style={{background:ri%2===0?'#fafaf8':'#fff'}}>
+              {cells.map((cell,ci)=><td key={ci} style={{padding:'6px 11px',borderBottom:'1px solid #f0f0ec',borderRight:'1px solid #f0f0ec',fontSize:12,color:'#333',lineHeight:1.5,fontFamily:ci===0?"'DM Mono',monospace":"'Lora',serif",fontWeight:ci===0?600:400}}>{cell}</td>)}
+            </tr>
+          );})}</tbody>
+        </table>
+      </div>
+    );tBuf=[];
+  };
+  while(i<lines.length){
+    const l=lines[i];
+    if(isRow(l)){tBuf.push(l);}
+    else{
+      if(tBuf.length)flushTable();
+      const t=l.trim();
+      if(!t){els.push(<div key={`br${i}`} style={{height:5}}/>);}
+      else if(/^[-•▸]\s/.test(t)){els.push(<div key={`li${i}`} style={{display:'flex',gap:7,marginBottom:3}}><span style={{color:'#1E88E5',flexShrink:0,marginTop:2,fontSize:11}}>▸</span><span style={{fontSize:13,lineHeight:1.75,color:'#333',fontFamily:"'Lora',serif"}}>{t.replace(/^[-•▸]\s/,'')}</span></div>);}
+      else{els.push(<p key={`p${i}`} style={{fontSize:13,lineHeight:1.8,color:'#333',marginBottom:3,fontFamily:"'Lora',serif"}}>{t}</p>);}
+    }i++;
+  }
+  if(tBuf.length)flushTable();
+  return <div>{els}</div>;
+}
+
+// ── NoteForm ────────────────────────────────────────────────────────────────
+function NoteForm({initial,onSave,onCancel}){
+  const empty={id:uid(),title:'',body:'',tumor:'',scenario:'',theme:'',source:'teoc',importance:2,color:'blue',tags:'',date:new Date().toISOString().slice(0,10)};
+  const [form,setForm]=useState(initial||empty);
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const grp=TUMOR_GROUPS.find(g=>g.id===form.tumor);
+  const color=CARD_COLORS.find(c=>c.id===form.color)||CARD_COLORS[0];
+  return(
+    <div style={{background:'#fff',borderRadius:14,padding:24,border:'1.5px solid #e8e8e4',maxWidth:720,margin:'0 auto'}}>
+      <div style={{fontSize:10,color:'#aaa',letterSpacing:1.5,textTransform:'uppercase',marginBottom:18,fontFamily:"'DM Mono',monospace"}}>
+        {initial?'✏️ Editar Nota':'+ Nova Nota'}
+      </div>
+      <input value={form.title} onChange={e=>set('title',e.target.value)}
+        placeholder="Título (ex: CDK4/6 em mama HR+ metastático)"
+        style={{width:'100%',padding:'11px 14px',border:'1.5px solid #e8e8e4',borderRadius:9,fontSize:15,fontWeight:600,color:'#1a1a2e',background:'#fafaf8',marginBottom:14,fontFamily:"'Lora',serif"}}/>
+
+      <div className="grid-3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:14}}>
+        <div>
+          <label style={{fontSize:9,color:'#aaa',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:5,fontFamily:"'DM Mono',monospace"}}>Grupo Tumoral</label>
+          <select value={form.tumor} onChange={e=>set('tumor',e.target.value)}
+            style={{width:'100%',padding:'9px 11px',border:`1.5px solid ${grp?grp.color+'60':'#e8e8e4'}`,borderRadius:8,fontSize:12,background:grp?grp.color+'10':'#fafaf8',color:grp?grp.color:'#666'}}>
+            <option value="">— Selecione —</option>
+            {TUMOR_GROUPS.map(g=><option key={g.id} value={g.id}>{g.emoji} {g.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{fontSize:9,color:'#aaa',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:5,fontFamily:"'DM Mono',monospace"}}>Cenário Clínico</label>
+          <select value={form.scenario} onChange={e=>set('scenario',e.target.value)}
+            style={{width:'100%',padding:'9px 11px',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,background:'#fafaf8',color:'#555'}}>
+            <option value="">— Selecione —</option>
+            {SCENARIOS.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{fontSize:9,color:'#aaa',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:5,fontFamily:"'DM Mono',monospace"}}>Tema / Alvo</label>
+          <select value={form.theme} onChange={e=>set('theme',e.target.value)}
+            style={{width:'100%',padding:'9px 11px',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,background:'#fafaf8',color:'#555'}}>
+            <option value="">— Selecione —</option>
+            {THEMES.map(t=><option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid-3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:14}}>
+        <div>
+          <label style={{fontSize:9,color:'#aaa',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:5,fontFamily:"'DM Mono',monospace"}}>Fonte</label>
+          <select value={form.source} onChange={e=>set('source',e.target.value)}
+            style={{width:'100%',padding:'9px 11px',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,background:'#fafaf8',color:'#555'}}>
+            {SOURCE_TYPES.map(s=><option key={s.id} value={s.id}>{s.emoji} {s.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{fontSize:9,color:'#aaa',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:5,fontFamily:"'DM Mono',monospace"}}>Importância</label>
+          <select value={form.importance} onChange={e=>set('importance',Number(e.target.value))}
+            style={{width:'100%',padding:'9px 11px',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,background:'#fafaf8',color:'#555'}}>
+            {IMPORTANCE.map(i=><option key={i.id} value={i.id}>{i.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{fontSize:9,color:'#aaa',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:5,fontFamily:"'DM Mono',monospace"}}>Cor do Card</label>
+          <div style={{display:'flex',gap:7,paddingTop:6}}>
+            {CARD_COLORS.map(c=>(
+              <button key={c.id} onClick={()=>set('color',c.id)}
+                style={{width:22,height:22,borderRadius:'50%',background:c.bg,border:`2.5px solid ${form.color===c.id?c.border:'transparent'}`,flexShrink:0}}/>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <input value={form.tags} onChange={e=>set('tags',e.target.value)}
+        placeholder="Tags: PALOMA-2, palbociclib, resistência (separadas por vírgula)"
+        style={{width:'100%',padding:'9px 14px',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,background:'#fafaf8',color:'#555',marginBottom:14,fontFamily:"'DM Mono',monospace"}}/>
+
+      <textarea value={form.body} onChange={e=>set('body',e.target.value)}
+        placeholder={"Conteúdo da nota…\n\n- Use linhas com '- ' para listas\n- Use | col | col | para tabelas\n\nEx:\n- CDK4/6 + AI: padrão 1L para HR+/HER2- metastático\n\n| Droga | HR PFS | p-valor |\n|---|---|---|\n| Palbociclib | 0.58 | <0.001 |"}
+        rows={10}
+        style={{width:'100%',padding:14,border:'1.5px solid #e8e8e4',borderRadius:10,fontSize:13,lineHeight:1.8,background:'#fafaf8',color:'#333',resize:'vertical',marginBottom:16,fontFamily:"'Lora',serif"}}/>
+
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+        <button onClick={onCancel} style={{padding:'9px 20px',background:'transparent',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,color:'#888',fontFamily:"'DM Mono',monospace"}}>Cancelar</button>
+        <button onClick={()=>form.title&&form.body&&onSave(form)}
+          disabled={!form.title||!form.body}
+          style={{padding:'9px 24px',background:form.title&&form.body?color.border:'#ddd',color:'#fff',border:'none',borderRadius:8,fontSize:12,fontWeight:700,fontFamily:"'DM Mono',monospace"}}>
+          💾 Salvar Nota
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── NoteCard ────────────────────────────────────────────────────────────────
+function NoteCard({note,onEdit,onDelete,onToggleStar}){
+  const [expanded,setExpanded]=useState(false);
+  const color=CARD_COLORS.find(c=>c.id===note.color)||CARD_COLORS[0];
+  const grp=TUMOR_GROUPS.find(g=>g.id===note.tumor);
+  const src=SOURCE_TYPES.find(s=>s.id===note.source);
+  const imp=IMPORTANCE.find(i=>i.id===note.importance);
+  const tags=note.tags?note.tags.split(',').map(t=>t.trim()).filter(Boolean):[];
+  return(
+    <div className="note-card" style={{border:`1.5px solid ${color.border}40`,borderLeft:`4px solid ${color.border}`,borderRadius:'0 12px 12px 0',background:'#fff',marginBottom:12,overflow:'hidden'}}>
+      <div style={{padding:'14px 16px 10px',background:color.bg+'60',cursor:'pointer'}} onClick={()=>setExpanded(e=>!e)}>
+        <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
+          <div style={{flex:1}}>
+            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:7,flexWrap:'wrap'}}>
+              {imp&&<span style={{fontSize:11}}>{imp.label.split(' ')[0]}</span>}
+              {grp&&<span className="tag" style={{background:grp.color+'15',color:grp.color}}>{grp.emoji} {grp.label}</span>}
+              {note.scenario&&<span className="tag" style={{background:'#f0f0ec',color:'#666'}}>{note.scenario}</span>}
+              {note.theme&&<span className="tag" style={{background:'#e8f5e9',color:'#2E7D32'}}>#{note.theme}</span>}
+              {src&&<span className="tag" style={{background:src.color+'12',color:src.color}}>{src.emoji} {src.label}</span>}
+            </div>
+            <div style={{fontSize:14,fontWeight:700,color:'#1a1a2e',lineHeight:1.4,fontFamily:"'Lora',serif"}}>{note.title}</div>
+            {tags.length>0&&(
+              <div style={{display:'flex',gap:5,flexWrap:'wrap',marginTop:6}}>
+                {tags.map((t,i)=><span key={i} style={{fontSize:10,color:'#999',background:'#f5f5f0',padding:'1px 7px',borderRadius:20,fontFamily:"'DM Mono',monospace"}}>#{t}</span>)}
+              </div>
+            )}
+          </div>
+          <div style={{display:'flex',gap:4,flexShrink:0,alignItems:'center'}}>
+            <button onClick={e=>{e.stopPropagation();onToggleStar(note.id);}} style={{fontSize:14,background:'none',border:'none',color:note.starred?'#F9A825':'#ccc',padding:'2px 4px'}}>★</button>
+            <button onClick={e=>{e.stopPropagation();onEdit(note);}} style={{fontSize:12,background:'none',border:'none',color:'#aaa',padding:'2px 4px'}}>✏️</button>
+            <button onClick={e=>{e.stopPropagation();onDelete(note.id);}} style={{fontSize:14,background:'none',border:'none',color:'#ccc',padding:'2px 4px'}}>×</button>
+            <span style={{fontSize:11,color:'#ccc',marginLeft:2}}>{expanded?'▲':'▼'}</span>
+          </div>
+        </div>
+      </div>
+      {expanded&&(
+        <div style={{padding:'14px 18px 16px'}}>
+          <RichText text={note.body}/>
+          <div style={{fontSize:10,color:'#ccc',marginTop:14,fontFamily:"'DM Mono',monospace"}}>{note.date}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── FilterBtn / Section ──────────────────────────────────────────────────────
+function FilterBtn({children,active,color,onClick}){
+  return(
+    <button onClick={onClick} style={{width:'100%',display:'flex',alignItems:'center',gap:6,padding:'6px 14px',background:active?color+'15':'none',border:'none',textAlign:'left',borderLeft:active?`3px solid ${color}`:'3px solid transparent',fontSize:11,color:active?color:'#666',fontWeight:active?700:400,fontFamily:"'DM Mono',monospace"}}>
+      {children}
+    </button>
+  );
+}
+function Section({label,children}){
+  const [open,setOpen]=useState(true);
+  return(
+    <div style={{marginBottom:4}}>
+      <button onClick={()=>setOpen(o=>!o)} style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 14px',background:'none',border:'none'}}>
+        <span style={{fontSize:9,fontWeight:700,color:'#aaa',letterSpacing:1.5,textTransform:'uppercase',fontFamily:"'DM Mono',monospace"}}>{label}</span>
+        <span style={{fontSize:9,color:'#ccc'}}>{open?'▲':'▼'}</span>
+      </button>
+      {open&&<div style={{paddingBottom:6}}>{children}</div>}
+    </div>
+  );
+}
+
+// ── FilterSidebar ────────────────────────────────────────────────────────────
+function FilterSidebar({filters,setFilters,notes}){
+  const counts=useMemo(()=>{const c={};notes.forEach(n=>{if(n.tumor)c[n.tumor]=(c[n.tumor]||0)+1;});return c;},[notes]);
+  const usedGroups=TUMOR_GROUPS.filter(g=>counts[g.id]);
+  const toggle=(key,val)=>setFilters(f=>{const arr=f[key]||[];return{...f,[key]:arr.includes(val)?arr.filter(x=>x!==val):[...arr,val]};});
+  const active=(key,val)=>(filters[key]||[]).includes(val);
+  const hasFilters=Object.values(filters).some(v=>Array.isArray(v)?v.length:v);
+  return(
+    <aside className="filter-sidebar" style={{width:200,background:'#fff',borderRight:'1.5px solid #e8e8e4',display:'flex',flexDirection:'column',flexShrink:0,overflowY:'auto',padding:'12px 0'}}>
+      <div style={{padding:'0 12px 12px'}}>
+        <input value={filters.search||''} onChange={e=>setFilters(f=>({...f,search:e.target.value}))}
+          placeholder="🔍 Buscar…"
+          style={{width:'100%',padding:'8px 11px',border:'1.5px solid #e8e8e4',borderRadius:9,fontSize:12,background:'#fafaf8',color:'#333',fontFamily:"'DM Mono',monospace"}}/>
+      </div>
+      <Section label="Grupo Tumoral">
+        {usedGroups.length===0&&<div style={{fontSize:10,color:'#ccc',padding:'4px 12px',fontFamily:"'DM Mono',monospace"}}>Nenhuma nota ainda</div>}
+        {usedGroups.map(g=><FilterBtn key={g.id} active={active('tumor',g.id)} color={g.color} onClick={()=>toggle('tumor',g.id)}>{g.emoji} {g.label} <span style={{marginLeft:'auto',fontSize:9,opacity:0.6}}>{counts[g.id]}</span></FilterBtn>)}
+      </Section>
+      <Section label="Cenário">
+        {SCENARIOS.map(s=><FilterBtn key={s} active={active('scenario',s)} color="#546E7A" onClick={()=>toggle('scenario',s)}>{s}</FilterBtn>)}
+      </Section>
+      <Section label="Tema">
+        {THEMES.map(t=><FilterBtn key={t} active={active('theme',t)} color="#5C6BC0" onClick={()=>toggle('theme',t)}>{t}</FilterBtn>)}
+      </Section>
+      <Section label="Fonte">
+        {SOURCE_TYPES.map(s=><FilterBtn key={s.id} active={active('source',s.id)} color={s.color} onClick={()=>toggle('source',s.id)}>{s.emoji} {s.label}</FilterBtn>)}
+      </Section>
+      <Section label="Importância">
+        {IMPORTANCE.map(i=><FilterBtn key={i.id} active={active('importance',String(i.id))} color={i.color} onClick={()=>toggle('importance',String(i.id))}>{i.label}</FilterBtn>)}
+      </Section>
+      {hasFilters&&(
+        <div style={{padding:'10px 12px'}}>
+          <button onClick={()=>setFilters({})} style={{width:'100%',padding:'7px',background:'#FFEBEE',color:'#D32F2F',border:'none',borderRadius:8,fontSize:11,fontFamily:"'DM Mono',monospace"}}>× Limpar filtros</button>
+        </div>
+      )}
+    </aside>
+  );
+}
+
+// ── App ──────────────────────────────────────────────────────────────────────
+function App(){
+  const [notes,setNotes]=useState(()=>loadNotes());
+  const [view,setView]=useState('list');
+  const [editing,setEditing]=useState(null);
+  const [filters,setFilters]=useState({});
+  const [sortBy,setSortBy]=useState('date');
+  const importRef=useRef(null);
+
+  useEffect(()=>{saveNotes(notes);},[notes]);
+
+  const saveNote=(note)=>{
+    setNotes(prev=>{const idx=prev.findIndex(n=>n.id===note.id);if(idx>=0){const next=[...prev];next[idx]=note;return next;}return[note,...prev];});
+    setView('list');setEditing(null);
+  };
+  const deleteNote=(id)=>{if(window.confirm('Apagar esta nota?'))setNotes(prev=>prev.filter(n=>n.id!==id));};
+  const toggleStar=(id)=>setNotes(prev=>prev.map(n=>n.id===id?{...n,starred:!n.starred}:n));
+
+  const filtered=useMemo(()=>{
+    let list=view==='starred'?notes.filter(n=>n.starred):notes;
+    const{search,tumor,scenario,theme,source,importance}=filters;
+    if(search){const q=search.toLowerCase();list=list.filter(n=>[n.title,n.body,n.tags].join(' ').toLowerCase().includes(q));}
+    if(tumor?.length)list=list.filter(n=>tumor.includes(n.tumor));
+    if(scenario?.length)list=list.filter(n=>scenario.includes(n.scenario));
+    if(theme?.length)list=list.filter(n=>theme.includes(n.theme));
+    if(source?.length)list=list.filter(n=>source.includes(n.source));
+    if(importance?.length)list=list.filter(n=>importance.includes(String(n.importance)));
+    if(sortBy==='importance')list=[...list].sort((a,b)=>(b.importance||0)-(a.importance||0));
+    else if(sortBy==='tumor')list=[...list].sort((a,b)=>(a.tumor||'').localeCompare(b.tumor||''));
+    else list=[...list].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    return list;
+  },[notes,filters,sortBy,view]);
+
+  const stats=useMemo(()=>({
+    total:notes.length,
+    starred:notes.filter(n=>n.starred).length,
+    groups:new Set(notes.map(n=>n.tumor).filter(Boolean)).size,
+    highImp:notes.filter(n=>n.importance===3).length,
+  }),[notes]);
+
+  const usedGroupsWithTwo=TUMOR_GROUPS.filter(g=>notes.filter(a=>a.tumor===g.id).length>=1);
+
+  return(
+    <div style={{minHeight:'100vh',display:'flex',flexDirection:'column',background:'#f5f5f0'}}>
+
+      {/* Header */}
+      <header style={{background:'#1a1a2e',padding:'0 20px',height:52,display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:20}}>📓</span>
+          <span style={{fontSize:18,fontWeight:700,color:'#fff',fontFamily:"'Lora',serif"}}>OncoNotes</span>
+          <span className="hide-mobile" style={{fontSize:9,fontWeight:600,color:'#43A047',background:'#43A04720',padding:'2px 8px',borderRadius:20,letterSpacing:1.5,fontFamily:"'DM Mono',monospace",textTransform:'uppercase',marginLeft:4}}>Caderno Oncológico</span>
+        </div>
+        <div style={{display:'flex',gap:6,alignItems:'center'}}>
+          <div className="header-stats" style={{display:'flex'}}>
+            {[{label:'notas',val:stats.total},{label:'grupos',val:stats.groups},{label:'🔴',val:stats.highImp},{label:'★',val:stats.starred}].map(s=>(
+              <div key={s.label} style={{textAlign:'center',padding:'0 8px',borderRight:'1px solid #ffffff15'}}>
+                <div style={{fontSize:13,fontWeight:700,color:'#fff',fontFamily:"'DM Mono',monospace"}}>{s.val}</div>
+                <div style={{fontSize:8,color:'#aaa',fontFamily:"'DM Mono',monospace",letterSpacing:1}}>{s.label.toUpperCase()}</div>
+              </div>
+            ))}
+          </div>
+          <button onClick={()=>exportJSON(notes)} style={{padding:'5px 10px',background:'transparent',border:'1px solid #ffffff30',borderRadius:7,color:'#aaa',fontSize:10,fontFamily:"'DM Mono',monospace"}}>↓ Backup</button>
+          <button onClick={()=>importRef.current?.click()} style={{padding:'5px 10px',background:'transparent',border:'1px solid #ffffff30',borderRadius:7,color:'#aaa',fontSize:10,fontFamily:"'DM Mono',monospace"}}>↑ Importar</button>
+          <input ref={importRef} type="file" accept=".json" style={{display:'none'}}
+            onChange={async e=>{const f=e.target.files[0];if(!f)return;try{const data=await importJSON(f);if(Array.isArray(data)&&window.confirm(`Importar ${data.length} notas?`)){setNotes(data);}}catch{alert('Arquivo inválido');}e.target.value='';}}/>
+        </div>
+      </header>
+
+      {/* Toolbar */}
+      <div style={{background:'#fff',borderBottom:'1.5px solid #e8e8e4',padding:'0 20px',display:'flex',alignItems:'center',gap:4,height:46,flexShrink:0,overflowX:'auto'}}>
+        {[{id:'list',label:'📋 Todas'},{id:'starred',label:'★ Favoritas'},{id:'new',label:'+ Nova Nota'}].map(tab=>(
+          <button key={tab.id} onClick={()=>{setView(tab.id);setEditing(null);}} style={{padding:'8px 12px',background:'none',border:'none',fontSize:11,fontWeight:600,color:view===tab.id?'#1a1a2e':'#aaa',borderBottom:view===tab.id?'2px solid #1a1a2e':'2px solid transparent',fontFamily:"'DM Mono',monospace",whiteSpace:'nowrap'}}>{tab.label}</button>
+        ))}
+        <div style={{flex:1}}/>
+        <div className="hide-mobile" style={{display:'flex',alignItems:'center',gap:5}}>
+          <span style={{fontSize:10,color:'#aaa',fontFamily:"'DM Mono',monospace"}}>ORDENAR:</span>
+          {[{id:'date',label:'Data'},{id:'importance',label:'Importância'},{id:'tumor',label:'Grupo'}].map(s=>(
+            <button key={s.id} onClick={()=>setSortBy(s.id)} style={{padding:'4px 9px',borderRadius:20,border:'none',fontSize:10,background:sortBy===s.id?'#1a1a2e':'#f0f0ec',color:sortBy===s.id?'#fff':'#888',fontFamily:"'DM Mono',monospace"}}>{s.label}</button>
+          ))}
+        </div>
+        <span style={{fontSize:11,color:'#bbb',marginLeft:8,fontFamily:"'DM Mono',monospace",whiteSpace:'nowrap'}}>{filtered.length} nota{filtered.length!==1?'s':''}</span>
+      </div>
+
+      {/* Content */}
+      <div className="main-layout" style={{display:'flex',flex:1,overflow:'hidden'}}>
+        {(view==='list'||view==='starred')&&(
+          <FilterSidebar filters={filters} setFilters={setFilters} notes={notes}/>
+        )}
+        <div style={{flex:1,overflowY:'auto',padding:'20px 20px'}}>
+          {(view==='new'||editing)&&(
+            <NoteForm initial={editing} onSave={saveNote} onCancel={()=>{setView('list');setEditing(null);}}/>
+          )}
+          {(view==='list'||view==='starred')&&(
+            <>
+              {filtered.length===0?(
+                <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'60vh',gap:16}}>
+                  <div style={{border:'2px dashed #ddd',borderRadius:20,padding:'40px 40px',textAlign:'center',background:'#fff'}}>
+                    <div style={{fontSize:48,marginBottom:14}}>📓</div>
+                    <div style={{fontSize:15,fontFamily:"'Lora',serif",color:'#555',marginBottom:8}}>
+                      {view==='starred'?'Nenhuma nota favorita':notes.length===0?'Caderno vazio':'Nenhuma nota encontrada'}
+                    </div>
+                    <div style={{fontSize:12,fontFamily:"'DM Mono',monospace",color:'#bbb',lineHeight:1.9}}>
+                      {notes.length===0?'Toque em "+ Nova Nota" para começar.':'Tente ajustar os filtros.'}
+                    </div>
+                    {notes.length===0&&<button onClick={()=>setView('new')} style={{marginTop:16,padding:'10px 24px',background:'#1a1a2e',color:'#fff',border:'none',borderRadius:9,fontSize:12,fontFamily:"'DM Mono',monospace"}}>+ Criar primeira nota</button>}
+                  </div>
+                </div>
+              ):(
+                <div style={{maxWidth:860,margin:'0 auto'}}>
+                  {sortBy==='tumor'
+                    ?TUMOR_GROUPS.map(grp=>{
+                        const grpNotes=filtered.filter(n=>n.tumor===grp.id);
+                        if(!grpNotes.length)return null;
+                        return(
+                          <div key={grp.id} style={{marginBottom:28}}>
+                            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,paddingBottom:8,borderBottom:`2px solid ${grp.color}30`}}>
+                              <span style={{fontSize:18}}>{grp.emoji}</span>
+                              <span style={{fontSize:13,fontWeight:700,color:grp.color,letterSpacing:0.5,fontFamily:"'DM Mono',monospace"}}>{grp.label.toUpperCase()}</span>
+                              <span style={{fontSize:10,background:grp.color+'20',color:grp.color,borderRadius:20,padding:'1px 8px',fontFamily:"'DM Mono',monospace"}}>{grpNotes.length}</span>
+                            </div>
+                            {grpNotes.map(n=><NoteCard key={n.id} note={n} onEdit={n=>{setEditing(n);setView('edit');}} onDelete={deleteNote} onToggleStar={toggleStar}/>)}
+                          </div>
+                        );
+                      })
+                    :filtered.map(n=><NoteCard key={n.id} note={n} onEdit={n=>{setEditing(n);setView('edit');}} onDelete={deleteNote} onToggleStar={toggleStar}/>)
+                  }
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
