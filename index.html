@@ -535,8 +535,80 @@ function NoteForm({initial,onSave,onCancel}){
   </div>;
 }
 
+// ── NoteMindMap — gera mapa mental a partir do conteúdo da nota ─────────────
+function NoteMindMap({note}){
+  const grp=TUMOR_GROUPS.find(g=>g.id===note.tumor);
+  const centerColor=grp?.color||'#1a1a2e';
+
+  // Extrai pontos principais do corpo da nota
+  const extractNodes=useMemo(()=>{
+    const lines=note.body.split('\n').filter(l=>l.trim());
+    const nodes=[];
+    // Pega título, tema, cenário como nós fixos
+    if(note.theme) nodes.push({label:note.theme,color:'#43A047',icon:'🎯'});
+    if(note.scenario) nodes.push({label:note.scenario.slice(0,12),color:'#1E88E5',icon:'🏥'});
+    // Extrai linhas com bullet points
+    lines.forEach(l=>{
+      const t=l.trim().replace(/^[-•▸]\s/,'');
+      if(/^[-•▸]\s/.test(l.trim())&&t.length>3&&t.length<40&&nodes.length<7){
+        nodes.push({label:t.slice(0,18),color:'#5C6BC0',icon:'▸'});
+      }
+    });
+    // Extrai tags como nós
+    if(note.tags){
+      note.tags.split(',').slice(0,3).forEach(tag=>{
+        const t=tag.trim();
+        if(t&&nodes.length<8) nodes.push({label:t.slice(0,15),color:'#E65100',icon:'🏷️'});
+      });
+    }
+    // Se poucos nós, pega primeiras palavras de parágrafos
+    lines.forEach(l=>{
+      const t=l.trim();
+      if(!t.startsWith('|')&&t.length>10&&nodes.length<7){
+        const words=t.split(' ').slice(0,3).join(' ');
+        if(!nodes.find(n=>n.label===words))
+          nodes.push({label:words,color:'#795548',icon:'📝'});
+      }
+    });
+    return nodes.slice(0,8);
+  },[note]);
+
+  const cx=160,cy=120;
+  const total=extractNodes.length||1;
+
+  return<svg width="100%" viewBox="0 0 320 240" style={{overflow:'visible'}}>
+    {extractNodes.map((n,i)=>{
+      const angle=(i/total)*Math.PI*2-Math.PI/2;
+      const x=cx+Math.cos(angle)*95;
+      const y=cy+Math.sin(angle)*75;
+      return<line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke={n.color} strokeWidth={1.5} strokeOpacity={0.35} strokeDasharray="4,3"/>;
+    })}
+    {/* Centro */}
+    <circle cx={cx} cy={cy} r={30} fill={centerColor}/>
+    <text x={cx} y={cy-5} textAnchor="middle" fill="white" fontSize={9} fontFamily="Lora,serif" fontWeight="bold">
+      {note.title.slice(0,12)}
+    </text>
+    {grp&&<text x={cx} y={cy+9} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={10}>{grp.emoji}</text>}
+    {/* Nós */}
+    {extractNodes.map((n,i)=>{
+      const angle=(i/total)*Math.PI*2-Math.PI/2;
+      const x=cx+Math.cos(angle)*95;
+      const y=cy+Math.sin(angle)*75;
+      return<g key={i}>
+        <circle cx={x} cy={y} r={20} fill={n.color} fillOpacity={0.12} stroke={n.color} strokeWidth={1.5}/>
+        <text x={x} y={y-3} textAnchor="middle" fontSize={10}>{n.icon}</text>
+        <text x={x} y={y+10} textAnchor="middle" fill={n.color} fontSize={6} fontFamily="DM Mono,monospace" fontWeight="bold">
+          {n.label.toUpperCase().slice(0,10)}
+        </text>
+      </g>;
+    })}
+    {extractNodes.length===0&&<text x={cx} y={cy+50} textAnchor="middle" fill="#bbb" fontSize={10} fontFamily="DM Mono,monospace">Adicione conteúdo à nota</text>}
+  </svg>;
+}
+
 function NoteCard({note,onEdit,onDelete,onToggleStar}){
   const[expanded,setExpanded]=useState(false);
+  const[showMap,setShowMap]=useState(false);
   const color=CARD_COLORS.find(c=>c.id===note.color)||CARD_COLORS[0];
   const grp=TUMOR_GROUPS.find(g=>g.id===note.tumor);
   const src=SOURCES.find(s=>s.id===note.source);
@@ -566,7 +638,19 @@ function NoteCard({note,onEdit,onDelete,onToggleStar}){
     </div>
     {expanded&&<div style={{padding:'12px 16px 14px'}}>
       <RichText text={note.body}/>
-      <div style={{fontSize:10,color:'#ccc',marginTop:12,fontFamily:"'DM Mono',monospace"}}>{note.date}</div>
+      {/* Botão mapa mental */}
+      <button onClick={e=>{e.stopPropagation();setShowMap(m=>!m);}}
+        style={{marginTop:14,padding:'6px 14px',background:showMap?grp?.color||'#1a1a2e':'#f5f5f0',color:showMap?'#fff':'#666',border:'none',borderRadius:20,fontSize:11,fontFamily:"'DM Mono',monospace",cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
+        🗺️ {showMap?'Fechar Mapa Mental':'Ver Mapa Mental'}
+      </button>
+      {showMap&&<div style={{marginTop:12,background:'#fafaf8',borderRadius:12,padding:14,border:'1.5px solid #f0f0ec'}}>
+        <div style={{fontSize:9,color:'#bbb',fontFamily:"'DM Mono',monospace",letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>MAPA MENTAL · {note.title}</div>
+        <NoteMindMap note={note}/>
+        <div style={{fontSize:10,color:'#bbb',fontFamily:"'DM Mono',monospace",marginTop:8,lineHeight:1.6}}>
+          Gerado a partir do conteúdo da nota · sem uso de créditos
+        </div>
+      </div>}
+      <div style={{fontSize:10,color:'#ccc',marginTop:10,fontFamily:"'DM Mono',monospace"}}>{note.date}</div>
     </div>}
   </div>;
 }
