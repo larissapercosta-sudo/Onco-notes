@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="theme-color" content="#1a1a2e"/>
+<title>OncoStudy 🧬</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Lora',serif;background:#f5f5f0}
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:#f0f0ec}
+::-webkit-scrollbar-thumb{background:#ccc;border-radius:10px}
+textarea,input,select{outline:none;font-family:'Lora',serif}
+button{cursor:pointer;font-family:'Lora',serif}
+button:focus{outline:none}
+.card{transition:box-shadow .2s,transform .2s}
+.card:hover{box-shadow:0 4px 20px rgba(0,0,0,.08);transform:translateY(-1px)}
+.tag{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:20px;font-size:10px;font-family:'DM Mono',monospace;font-weight:600;letter-spacing:.5px}
+@keyframes slide{0%{width:0%;margin-left:0}50%{width:60%;margin-left:20%}100%{width:0%;margin-left:100%}}
+@media(max-width:700px){
+  .hide-mob{display:none!important}
+  .grid3{grid-template-columns:1fr!important}
+  .sidebar{width:100%!important;border-right:none!important;border-bottom:1.5px solid #e8e8e4!important;max-height:200px!important}
+  .splitL{flex:0 0 100%!important}
+  .splitR{display:none!important}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useMemo,useCallback}=React;
+
+// ── Constantes ──────────────────────────────────────────────────────────────
+const TUMOR_GROUPS=[
+  {id:'mama',      label:'Mama',          emoji:'🎗️',color:'#E91E8C'},
+  {id:'pulmao',    label:'Pulmão',        emoji:'🫁', color:'#1E88E5'},
+  {id:'colorretal',label:'Colorretal',    emoji:'🟤', color:'#795548'},
+  {id:'prostata',  label:'Próstata',      emoji:'🔵', color:'#1565C0'},
+  {id:'hemato',    label:'Hematologia',   emoji:'🩸', color:'#C62828'},
+  {id:'gastrico',  label:'Gástrico/GEJ',  emoji:'🟡', color:'#F9A825'},
+  {id:'ovario',    label:'Ovário',        emoji:'🟣', color:'#7B1FA2'},
+  {id:'figado',    label:'Fígado/Biliar', emoji:'🟠', color:'#E65100'},
+  {id:'rim',       label:'Rim/Urológico', emoji:'🫘', color:'#00838F'},
+  {id:'snc',       label:'SNC',           emoji:'🧠', color:'#4527A0'},
+  {id:'pele',      label:'Pele/Melanoma', emoji:'☀️', color:'#FF8F00'},
+  {id:'outros',    label:'Outros',        emoji:'🔬', color:'#546E7A'},
+];
+const SCENARIOS=['Neoadjuvante','Adjuvante','1ª Linha Metastático','2ª Linha Metastático','3ª Linha+','Localizado','Geral'];
+const THEMES=['CDK4/6','Imunoterapia','Anti-HER2','PARP','PI3K/AKT/mTOR','Anti-VEGF','ADC','Hormonioterapia','Quimioterapia','Cirurgia/RT','Biomarcadores','ESR1/PIK3CA','ALK/ROS1/EGFR','BRCA','Outro'];
+const SOURCES=[
+  {id:'teoc', label:'OC-TEOC 2025',    emoji:'📚',color:'#5C6BC0'},
+  {id:'trial',label:'Ensaio Clínico',  emoji:'🔬',color:'#00838F'},
+  {id:'rev',  label:'Revisão/Guide',   emoji:'📋',color:'#43A047'},
+  {id:'case', label:'Caso Clínico',    emoji:'🩺',color:'#E65100'},
+  {id:'note', label:'Nota Pessoal',    emoji:'✏️',color:'#8D6E63'},
+];
+const CARD_COLORS=[
+  {id:'blue',  bg:'#E3F2FD',border:'#1E88E5'},
+  {id:'green', bg:'#E8F5E9',border:'#43A047'},
+  {id:'orange',bg:'#FFF3E0',border:'#E65100'},
+  {id:'red',   bg:'#FFEBEE',border:'#D32F2F'},
+  {id:'purple',bg:'#F3E5F5',border:'#7B1FA2'},
+  {id:'teal',  bg:'#E0F2F1',border:'#00838F'},
+];
+const IMPORTANCE=[{id:3,label:'🔴 Alta',color:'#D32F2F'},{id:2,label:'🟡 Média',color:'#F9A825'},{id:1,label:'🟢 Baixa',color:'#43A047'}];
+const TOPIC_ICONS=['📋','🔬','🧪','👥','🎯','📊','🔍','⚠️','🧐','💡'];
+const TOPIC_NAMES=['Título Formatado','Racional','Desenho do Estudo','População','Endpoints','Resultados Principais','Análise de Subgrupos','Segurança e Toxicidade','Críticas ao Estudo','Impacto Clínico'];
+const TOPIC_COLORS=['#1E88E5','#1E88E5','#1E88E5','#1E88E5','#1E88E5','#43A047','#43A047','#E65100','#D32F2F','#43A047'];
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
+
+// ── Storage ─────────────────────────────────────────────────────────────────
+const NOTES_KEY='oncostudy_notes_v1';
+const ARTICLES_KEY='oncostudy_articles_v1';
+const loadNotes=()=>{try{const r=localStorage.getItem(NOTES_KEY);return r?JSON.parse(r):[]}catch{return[]}};
+const loadArticles=()=>{try{const r=localStorage.getItem(ARTICLES_KEY);return r?JSON.parse(r):[]}catch{return[]}};
+const saveNotes=n=>{try{localStorage.setItem(NOTES_KEY,JSON.stringify(n))}catch{}};
+const saveArticles=a=>{try{localStorage.setItem(ARTICLES_KEY,JSON.stringify(a))}catch{}};
+
+const exportAll=(notes,articles)=>{
+  const blob=new Blob([JSON.stringify({notes,articles},null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=`oncostudy-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();
+};
+const importAll=file=>new Promise((res,rej)=>{
+  const r=new FileReader();
+  r.onload=e=>{try{res(JSON.parse(e.target.result))}catch{rej(new Error('JSON inválido'))}};
+  r.onerror=()=>rej(new Error('Erro'));r.readAsText(file);
+});
+
+// ── API Anthropic ────────────────────────────────────────────────────────────
+const readBase64=file=>new Promise((res,rej)=>{
+  const r=new FileReader();
+  r.onload=()=>res(r.result.split(',')[1]);
+  r.onerror=()=>rej(new Error('Falha ao ler arquivo'));
+  r.readAsDataURL(file);
+});
+
+async function callClaude(apiKey,messages,system,maxTokens=2000){
+  const res=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:maxTokens,system,messages}),
+  });
+  if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e?.error?.message||`Erro HTTP ${res.status}`);}
+  const d=await res.json();
+  return d.content?.filter(b=>b.type==='text').map(b=>b.text).join('')||'';
+}
+
+function parseJSON(raw){return JSON.parse(raw.replace(/```json|```/g,'').trim())}
+
+function detectGroup(tumor=''){
+  const t=tumor.toLowerCase();
+  if(t.includes('mama')||t.includes('breast'))return'mama';
+  if(t.includes('pulm')||t.includes('lung')||t.includes('nsclc')||t.includes('sclc'))return'pulmao';
+  if(t.includes('color')||t.includes('retal')||t.includes('colon'))return'colorretal';
+  if(t.includes('próst')||t.includes('prost'))return'prostata';
+  if(t.includes('hemato')||t.includes('leucem')||t.includes('linfom')||t.includes('mielom'))return'hemato';
+  if(t.includes('gástri')||t.includes('gastric')||t.includes('gej'))return'gastrico';
+  if(t.includes('ovário')||t.includes('ovario')||t.includes('ovarian'))return'ovario';
+  if(t.includes('fígado')||t.includes('figado')||t.includes('hcc')||t.includes('biliar'))return'figado';
+  if(t.includes('rim')||t.includes('renal')||t.includes('bexiga'))return'rim';
+  if(t.includes('snc')||t.includes('gliom')||t.includes('cerebr'))return'snc';
+  if(t.includes('melan')||t.includes('pele'))return'pele';
+  return'outros';
+}
+
+// ── RichText ─────────────────────────────────────────────────────────────────
+function RichText({text,highlights,topic}){
+  if(!text)return null;
+  const applyHL=str=>{
+    const hls=(highlights||[]).filter(h=>h.topic===topic);
+    if(!hls.length)return<span>{str}</span>;
+    let parts=[{text:str,hl:false,color:null}];
+    hls.forEach(h=>{
+      parts=parts.flatMap(p=>{
+        if(p.hl)return[p];
+        const idx=p.text.indexOf(h.text);
+        if(idx===-1)return[p];
+        return[{text:p.text.slice(0,idx),hl:false},{text:h.text,hl:true,color:h.color},{text:p.text.slice(idx+h.text.length),hl:false}].filter(x=>x.text);
+      });
+    });
+    return parts.map((p,i)=>p.hl?<mark key={i} style={{background:p.color.bg,borderBottom:`2px solid ${p.color.border}`,borderRadius:3,padding:'0 1px'}}>{p.text}</mark>:<span key={i}>{p.text}</span>);
+  };
+  const isSep=l=>/^\|[\s\-|:]+\|$/.test(l.trim());
+  const isRow=l=>l.trim().startsWith('|')&&l.trim().endsWith('|');
+  const parseRow=l=>l.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+  const lines=text.split('\n');const els=[];let tBuf=[];let i=0;
+  const flushT=()=>{
+    const rows=tBuf.filter(l=>!isSep(l));
+    if(rows.length<2){tBuf.forEach((l,j)=>els.push(<p key={`pt${i}${j}`} style={{fontSize:13,lineHeight:1.75,marginBottom:3,color:'#444',fontFamily:"'Lora',serif"}}>{applyHL(l)}</p>));tBuf=[];return;}
+    const hdrs=parseRow(rows[0]);const body=rows.slice(1);
+    els.push(<div key={`t${i}`} style={{overflowX:'auto',margin:'10px 0 14px'}}>
+      <table style={{borderCollapse:'collapse',fontSize:12,width:'100%'}}>
+        <thead><tr>{hdrs.map((h,ci)=><th key={ci} style={{padding:'7px 11px',background:'#1a1a2e',color:'#fff',textAlign:'left',fontSize:10,fontFamily:"'DM Mono',monospace",borderRight:'1px solid #2a2a3e',whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
+        <tbody>{body.map((row,ri)=>{const cells=parseRow(row);return<tr key={ri} style={{background:ri%2===0?'#fafaf8':'#fff'}}>{cells.map((cell,ci)=><td key={ci} style={{padding:'6px 11px',borderBottom:'1px solid #f0f0ec',borderRight:'1px solid #f0f0ec',fontSize:12,color:'#333',lineHeight:1.5,fontFamily:ci===0?"'DM Mono',monospace":"'Lora',serif",fontWeight:ci===0?600:400}}>{applyHL(cell)}</td>)}</tr>;})}
+        </tbody>
+      </table>
+    </div>);tBuf=[];
+  };
+  while(i<lines.length){
+    const l=lines[i];
+    if(isRow(l)){tBuf.push(l);}
+    else{
+      if(tBuf.length)flushT();
+      const t=l.trim();
+      if(!t){els.push(<div key={`br${i}`} style={{height:5}}/>);}
+      else if(/^[-•▸]\s/.test(t)){els.push(<div key={`li${i}`} style={{display:'flex',gap:7,marginBottom:3}}><span style={{color:'#1E88E5',flexShrink:0,marginTop:2,fontSize:11}}>▸</span><span style={{fontSize:13,lineHeight:1.75,color:'#333',fontFamily:"'Lora',serif"}}>{applyHL(t.replace(/^[-•▸]\s/,''))}</span></div>);}
+      else{els.push(<p key={`p${i}`} style={{fontSize:13,lineHeight:1.8,color:'#333',marginBottom:3,fontFamily:"'Lora',serif"}}>{applyHL(t)}</p>);}
+    }i++;
+  }
+  if(tBuf.length)flushT();
+  return<div>{els}</div>;
+}
+
+// ── TopicBlock ───────────────────────────────────────────────────────────────
+const HL_COLORS=[
+  {id:'hl-y',bg:'#FFF59D',border:'#F9A825'},{id:'hl-b',bg:'#BBDEFB',border:'#1E88E5'},
+  {id:'hl-g',bg:'#C8E6C9',border:'#43A047'},{id:'hl-o',bg:'#FFE0B2',border:'#E65100'},
+  {id:'hl-r',bg:'#FFCDD2',border:'#D32F2F'},
+];
+function TopicBlock({icon,name,colorHex,content,index,onHL,highlights}){
+  const[open,setOpen]=useState(index<3);
+  const[hlC,setHlC]=useState('hl-y');
+  const handleMU=()=>{
+    const sel=window.getSelection();if(!sel||sel.isCollapsed)return;
+    const text=sel.toString().trim();if(!text||text.length>400)return;
+    const color=HL_COLORS.find(c=>c.id===hlC);
+    onHL({text,color,topic:name});sel.removeAllRanges();
+  };
+  return(
+    <div style={{marginBottom:12,border:`1.5px solid ${colorHex}22`,borderLeft:`4px solid ${colorHex}`,borderRadius:'0 10px 10px 0',background:'#fff',overflow:'hidden'}}>
+      <button onClick={()=>setOpen(o=>!o)} style={{width:'100%',display:'flex',alignItems:'center',gap:10,padding:'11px 16px',background:'none',border:'none',textAlign:'left'}}>
+        <span style={{fontSize:15}}>{icon}</span>
+        <span style={{fontSize:11,fontWeight:700,color:'#888',letterSpacing:1,textTransform:'uppercase',fontFamily:"'DM Mono',monospace"}}>{String(index+1).padStart(2,'0')}</span>
+        <span style={{fontSize:13,fontWeight:600,color:'#1a1a2e',flex:1,fontFamily:"'Lora',serif"}}>{name}</span>
+        <span style={{width:8,height:8,borderRadius:'50%',background:colorHex,flexShrink:0}}/>
+        <span style={{fontSize:11,color:'#aaa'}}>{open?'▲':'▼'}</span>
+      </button>
+      {open&&<>
+        <div style={{display:'flex',alignItems:'center',gap:6,padding:'2px 16px 8px 44px'}}>
+          <span style={{fontSize:10,color:'#bbb',fontFamily:"'DM Mono',monospace",marginRight:4}}>GRIFO:</span>
+          {HL_COLORS.map(c=><button key={c.id} onClick={()=>setHlC(c.id)} style={{width:15,height:15,borderRadius:'50%',background:c.bg,border:`2px solid ${hlC===c.id?c.border:'transparent'}`,flexShrink:0}}/>)}
+        </div>
+        <div onMouseUp={handleMU} style={{padding:'4px 18px 14px 44px',userSelect:'text',cursor:'text'}}>
+          <RichText text={content} highlights={highlights} topic={name}/>
+        </div>
+      </>}
+    </div>
+  );
+}
+
+// ── MindMap ──────────────────────────────────────────────────────────────────
+function MindMap({topics,article,groupColor}){
+  if(!topics?.length)return<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:160,color:'#bbb',fontSize:12,fontFamily:"'DM Mono',monospace"}}>Analise um artigo para ver o mapa</div>;
+  const cx=155,cy=110;
+  const nodes=topics.slice(0,8).map((_,i)=>{
+    const angle=(i/8)*Math.PI*2-Math.PI/2;
+    return{x:cx+Math.cos(angle)*85,y:cy+Math.sin(angle)*65,icon:TOPIC_ICONS[i],label:TOPIC_NAMES[i].split(' ')[0],color:TOPIC_COLORS[i]};
+  });
+  return<svg width="100%" viewBox="0 0 310 220" style={{overflow:'visible'}}>
+    {nodes.map((n,i)=><line key={i} x1={cx} y1={cy} x2={n.x} y2={n.y} stroke={n.color} strokeWidth={1.2} strokeOpacity={0.4} strokeDasharray="3,3"/>)}
+    <circle cx={cx} cy={cy} r={24} fill={groupColor||'#1a1a2e'}/>
+    <text x={cx} y={cy-2} textAnchor="middle" fill="white" fontSize={9} fontFamily="Lora,serif" fontWeight="bold">{article?.split(' ')[0]||'Estudo'}</text>
+    <text x={cx} y={cy+11} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize={7} fontFamily="DM Mono,monospace">ESTUDO</text>
+    {nodes.map((n,i)=><g key={i}>
+      <circle cx={n.x} cy={n.y} r={16} fill={n.color} fillOpacity={0.12} stroke={n.color} strokeWidth={1.5}/>
+      <text x={n.x} y={n.y-1} textAnchor="middle" fontSize={10}>{n.icon}</text>
+      <text x={n.x} y={n.y+11} textAnchor="middle" fill={n.color} fontSize={6} fontFamily="DM Mono,monospace" fontWeight="bold">{n.label.toUpperCase().slice(0,8)}</text>
+    </g>)}
+  </svg>;
+}
+
+// ── WikiSection ──────────────────────────────────────────────────────────────
+function WikiSection({apiKey}){
+  const[articles,setArticles]=useState(()=>loadArticles());
+  const[selected,setSelected]=useState(null);
+  const[topics,setTopics]=useState(null);
+  const[notes,setNotes]=useState({});
+  const[highlights,setHighlights]=useState({});
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState('');
+  const[activeTab,setActiveTab]=useState('mapa');
+  const[dragOver,setDragOver]=useState(false);
+  const[expanded,setExpanded]=useState({});
+  const[view,setView]=useState('resumo');
+  const[matrixGroup,setMatrixGroup]=useState('all');
+  const fileRef=useRef(null);
+
+  useEffect(()=>{saveArticles(articles);},[articles]);
+
+  const currentArt=articles.find(a=>a.id===selected);
+  const currentGrp=currentArt?TUMOR_GROUPS.find(g=>g.id===currentArt.group):null;
+  const currentHL=highlights[selected]||[];
+  const allHL=Object.entries(highlights).flatMap(([id,hls])=>{const a=articles.find(x=>x.id===Number(id));return hls.map(h=>({...h,artTitle:a?.title||''}));});
+
+  const byGroup=TUMOR_GROUPS.reduce((acc,g)=>{acc[g.id]=articles.filter(a=>a.group===g.id);return acc;},{});
+  const usedGroups=TUMOR_GROUPS.filter(g=>byGroup[g.id].length>0);
+
+  const onHL=useCallback(hl=>{if(!selected)return;setHighlights(p=>({...p,[selected]:[...(p[selected]||[]),hl]}));},[selected]);
+
+  const processPDF=useCallback(async file=>{
+    if(!apiKey){setError('Configure sua API Key nas configurações ⚙️');return;}
+    setLoading(true);setError('');
+    try{
+      const base64=await readBase64(file);
+      const fileName=file.name.replace(/\.pdf$/i,'');
+      const extractRaw=await callClaude(apiKey,[{role:'user',content:[
+        {type:'document',source:{type:'base64',media_type:'application/pdf',data:base64}},
+        {type:'text',text:'Extraia TODO o texto deste PDF preservando números, tabelas e estatísticas. Retorne apenas o texto bruto.'},
+      ]}],'Você é um extrator de texto de artigos científicos. Extraia o texto completo fiel ao documento.',3000);
+      if(!extractRaw||extractRaw.length<100)throw new Error('Texto insuficiente no PDF.');
+
+      const parseRaw=await callClaude(apiKey,[{role:'user',content:`TEXTO DO ARTIGO — USE APENAS ESTE TEXTO, SEM CONHECIMENTO EXTERNO:
+---
+${extractRaw.slice(0,8000)}
+---
+Analise com máximo rigor. Se não estiver no texto: "Não informado no documento."
+Responda APENAS em JSON puro:
+{"title":"Nome resumido (Ano)","tumor":"sítio tumoral","scenario":"cenário clínico detalhado","topics":["t1","t2","t3","t4","t5","t6","t7","t8","t9","t10"]}
+
+TÓPICO 1 — TÍTULO: nome resumido (Ano) | título completo | revista e ano
+TÓPICO 2 — RACIONAL 🔬: contexto clínico, lacuna de conhecimento, justificativa das intervenções
+TÓPICO 3 — DESENHO 🧪: fase, tipo, randomização, braços com doses exatas, estratificações, centros, seguimento
+TÓPICO 4 — POPULAÇÃO 👥: total por braço. Tabela: | Característica | Braço A | Braço B | com idade, PS, biomarcadores, SNC, mutações. Critérios inclusão/exclusão.
+TÓPICO 5 — ENDPOINTS 🎯: definição conceitual exata de cada endpoint primário e secundário. Hipótese estatística.
+TÓPICO 6 — RESULTADOS 📊: tabela | Endpoint | Braço A | Braço B | HR (IC95%) | p-valor | para todos desfechos. Endpoint primário atingido?
+TÓPICO 7 — SUBGRUPOS 🧠: tabela | Subgrupo | HR (IC95%) | Favorece | para SNC, PD-L1, mutações. Quais mais se beneficiaram?
+TÓPICO 8 — TOXICIDADE ⚠️: tabela | Evento Grau≥3 | Braço A (%) | Braço B (%) |. Descontinuações, reduções de dose, óbitos.
+TÓPICO 9 — CRÍTICAS 🧐: vieses, limitações, generalização, sub-representação de grupos.
+TÓPICO 10 — IMPACTO 🩺💡: novo padrão? Ganho absoluto? Consistência nos subgrupos? Aplicabilidade brasil.`}],
+      'Você é oncologista sênior. Analise SOMENTE o texto fornecido. Seja maximamente rigoroso. Use tabelas markdown sempre que houver dados comparativos. Nunca invente dados.',4000);
+
+      const parsed=parseJSON(parseRaw);
+      const group=detectGroup(parsed.tumor||'');
+      const newArt={id:Date.now(),title:parsed.title||fileName,tumor:parsed.tumor||'',scenario:parsed.scenario||'',date:new Date().toISOString().slice(0,10),group,topics:parsed.topics};
+      setArticles(p=>[newArt,...p]);
+      setSelected(newArt.id);setTopics(newArt.topics);
+      setView('resumo');setActiveTab('mapa');
+      setExpanded(p=>({...p,[group]:true}));
+    }catch(e){setError('Erro: '+(e.message||'Verifique o PDF e a API Key'));}
+    setLoading(false);
+  },[apiKey]);
+
+  const selectArt=a=>{setSelected(a.id);setTopics(a.topics||null);setView('resumo');setActiveTab('mapa');};
+
+  const matrixArts=matrixGroup==='all'?articles.filter(a=>a.topics):articles.filter(a=>a.topics&&a.group===matrixGroup);
+  const COMPARE_ROWS=['Título / Fase','Braços / Intervenção','Tamanho Amostral','Endpoint Primário','HR / IC95%','p-valor','Subgrupo Destaque','Toxicidade Grau≥3','Limitação Principal','Impacto Clínico'];
+
+  return<div style={{display:'flex',flex:1,overflow:'hidden'}}>
+    {/* Sidebar artigos */}
+    <aside style={{width:220,background:'#fff',borderRight:'1.5px solid #e8e8e4',display:'flex',flexDirection:'column',flexShrink:0,overflow:'hidden'}}>
+      <div style={{padding:'12px 12px 10px',borderBottom:'1px solid #f0f0ec',flexShrink:0}}>
+        <div style={{fontSize:9,fontWeight:700,color:'#aaa',letterSpacing:1.5,textTransform:'uppercase',fontFamily:"'DM Mono',monospace",marginBottom:10}}>Adicionar Artigo</div>
+        <div onDragOver={e=>{e.preventDefault();setDragOver(true)}} onDragLeave={()=>setDragOver(false)}
+          onDrop={e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f?.type==='application/pdf')processPDF(f);}}
+          onClick={()=>!loading&&fileRef.current?.click()}
+          style={{border:`2px dashed ${dragOver?'#1E88E5':'#ddd'}`,borderRadius:10,padding:'12px 10px',textAlign:'center',cursor:loading?'default':'pointer',background:dragOver?'#E3F2FD':'#fafaf8',transition:'all .2s'}}>
+          <div style={{fontSize:18,marginBottom:4}}>📄</div>
+          <div style={{fontSize:11,color:'#888',fontFamily:"'DM Mono',monospace",lineHeight:1.5}}>{loading?'⏳ Processando…':'Arraste um PDF\nou clique aqui'}</div>
+          {loading&&<div style={{marginTop:8,height:3,background:'#f0f0ec',borderRadius:10,overflow:'hidden'}}><div style={{height:'100%',background:'#1E88E5',borderRadius:10,animation:'slide 1.5s infinite'}}/></div>}
+        </div>
+        <input ref={fileRef} type="file" accept=".pdf" onChange={e=>{const f=e.target.files[0];if(f)processPDF(f);e.target.value='';}} style={{display:'none'}}/>
+        {error&&<div style={{marginTop:8,padding:'7px 10px',background:'#FFEBEE',borderRadius:8,fontSize:10,color:'#D32F2F',fontFamily:"'DM Mono',monospace",lineHeight:1.5}}>{error}</div>}
+      </div>
+
+      <div style={{flex:1,overflowY:'auto',padding:'8px 0'}}>
+        {articles.length===0
+          ?<div style={{padding:'20px 14px',textAlign:'center',fontSize:11,color:'#ccc',fontFamily:"'DM Mono',monospace",lineHeight:1.8}}>Nenhum artigo ainda.<br/>Adicione um PDF acima.</div>
+          :usedGroups.map(grp=>{
+            const arts=byGroup[grp.id];const isOpen=expanded[grp.id]!==false;
+            return<div key={grp.id}>
+              <button onClick={()=>setExpanded(p=>({...p,[grp.id]:!p[grp.id]}))} style={{width:'100%',display:'flex',alignItems:'center',gap:7,padding:'7px 12px',background:'none',border:'none',textAlign:'left',borderLeft:`3px solid ${grp.color}`,marginBottom:2}}>
+                <span style={{fontSize:13}}>{grp.emoji}</span>
+                <span style={{fontSize:11,fontWeight:700,color:grp.color,fontFamily:"'DM Mono',monospace",flex:1,letterSpacing:.5}}>{grp.label.toUpperCase()}</span>
+                <span style={{fontSize:9,background:grp.color+'20',color:grp.color,borderRadius:20,padding:'1px 6px',fontFamily:"'DM Mono',monospace",fontWeight:700}}>{arts.length}</span>
+                <span style={{fontSize:10,color:'#bbb'}}>{isOpen?'▲':'▼'}</span>
+              </button>
+              {isOpen&&<div style={{paddingLeft:12,paddingBottom:4}}>
+                {arts.map(art=><button key={art.id} onClick={()=>selectArt(art)} style={{width:'100%',padding:'7px 10px',marginBottom:2,background:selected===art.id?grp.color+'12':'transparent',border:selected===art.id?`1.5px solid ${grp.color}30`:'1.5px solid transparent',borderRadius:8,cursor:'pointer',textAlign:'left',transition:'all .15s'}}>
+                  <div style={{fontSize:11,fontWeight:600,color:'#1a1a2e',fontFamily:"'Lora',serif",marginBottom:2}}>{art.title}</div>
+                  <div style={{fontSize:10,color:'#aaa',fontFamily:"'DM Mono',monospace"}}>{art.scenario}</div>
+                </button>)}
+              </div>}
+              <div style={{height:1,background:'#f5f5f0',margin:'3px 0'}}/>
+            </div>;
+          })
+        }
+      </div>
+      {articles.filter(a=>a.topics).length>=2&&<div style={{padding:'8px 12px',borderTop:'1px solid #f0f0ec',flexShrink:0}}>
+        <button onClick={()=>setView(view==='matrix'?'resumo':'matrix')} style={{width:'100%',padding:'8px',background:view==='matrix'?'#1a1a2e':'transparent',color:view==='matrix'?'#fff':'#555',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:11,fontFamily:"'DM Mono',monospace"}}>📊 Matriz Comparativa</button>
+      </div>}
+    </aside>
+
+    {/* Painel esquerdo */}
+    <div className="splitL" style={{flex:'0 0 60%',overflowY:'auto',padding:'22px 24px',background:'#fafaf8',borderRight:'1.5px solid #e8e8e4'}}>
+      {view==='matrix'&&<>
+        <div style={{marginBottom:18}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+            <span style={{fontSize:17}}>📊</span>
+            <h1 style={{fontSize:17,fontWeight:700,color:'#1a1a2e',fontFamily:"'Lora',serif"}}>Matriz Comparativa</h1>
+            <button onClick={()=>setView('resumo')} style={{marginLeft:'auto',padding:'4px 11px',background:'transparent',border:'1.5px solid #e8e8e4',borderRadius:7,fontSize:11,color:'#888',fontFamily:"'DM Mono',monospace"}}>← Voltar</button>
+          </div>
+          <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+            {['all',...TUMOR_GROUPS.filter(g=>articles.filter(a=>a.topics&&a.group===g.id).length>=2).map(g=>g.id)].map(id=>{
+              const g=TUMOR_GROUPS.find(x=>x.id===id);
+              return<button key={id} onClick={()=>setMatrixGroup(id)} style={{padding:'3px 10px',borderRadius:20,fontSize:10,fontFamily:"'DM Mono',monospace",border:'1.5px solid',borderColor:matrixGroup===id?(g?.color||'#1a1a2e'):'#ddd',background:matrixGroup===id?(g?.color||'#1a1a2e')+'15':'transparent',color:matrixGroup===id?(g?.color||'#1a1a2e'):'#888'}}>
+                {g?`${g.emoji} ${g.label}`:'Todos'}
+              </button>;
+            })}
+          </div>
+        </div>
+        <div style={{overflowX:'auto'}}>
+          <table style={{borderCollapse:'collapse',fontSize:12,width:'100%',fontFamily:"'Lora',serif"}}>
+            <thead><tr>
+              <th style={{padding:'9px 12px',background:'#1a1a2e',color:'#fff',fontFamily:"'DM Mono',monospace",fontSize:10,textAlign:'left',minWidth:150,position:'sticky',left:0,zIndex:2}}>CRITÉRIO</th>
+              {matrixArts.map(a=>{const g=TUMOR_GROUPS.find(x=>x.id===a.group);return<th key={a.id} style={{padding:'9px 12px',background:'#1a1a2e',color:'#fff',fontFamily:"'DM Mono',monospace",fontSize:10,textAlign:'left',minWidth:190}}>
+                <div style={{display:'flex',alignItems:'center',gap:5}}><span style={{width:7,height:7,borderRadius:'50%',background:g?.color||'#fff',flexShrink:0}}/>{a.title}</div>
+              </th>;})}
+            </tr></thead>
+            <tbody>{COMPARE_ROWS.map((row,ri)=>{
+              const ck=ri>=3&&ri<=6?'#43A047':ri===7?'#E65100':ri===8?'#D32F2F':'#1E88E5';
+              return<tr key={ri} style={{background:ri%2===0?'#fafaf8':'#fff'}}>
+                <td style={{padding:'9px 12px',fontFamily:"'DM Mono',monospace",fontSize:10,color:ck,fontWeight:700,position:'sticky',left:0,background:ri%2===0?'#fafaf8':'#fff',borderRight:'2px solid #f0f0ec'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:5}}><span style={{width:5,height:5,borderRadius:'50%',background:ck,flexShrink:0}}/>{row}</div>
+                </td>
+                {matrixArts.map(a=>{const tm=[0,2,3,4,5,5,6,7,8,9];const cell=a.topics?.[tm[ri]]||'—';return<td key={a.id} style={{padding:'9px 12px',color:'#444',fontSize:12,lineHeight:1.5,verticalAlign:'top',borderRight:'1px solid #f0f0ec'}}>{cell.length>120?cell.slice(0,120)+'…':cell}</td>;})}
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>
+      </>}
+
+      {view==='resumo'&&topics&&<>
+        <div style={{marginBottom:18}}>
+          {currentGrp&&<div style={{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 11px',borderRadius:20,background:currentGrp.color+'15',border:`1.5px solid ${currentGrp.color}40`,marginBottom:10}}>
+            <span style={{fontSize:12}}>{currentGrp.emoji}</span>
+            <span style={{fontSize:10,fontWeight:700,color:currentGrp.color,fontFamily:"'DM Mono',monospace",letterSpacing:1}}>{currentGrp.label.toUpperCase()}</span>
+            {currentArt?.scenario&&<span style={{fontSize:10,color:currentGrp.color+'aa',fontFamily:"'DM Mono',monospace"}}>· {currentArt.scenario}</span>}
+          </div>}
+          <div style={{display:'flex',alignItems:'center',gap:9,marginBottom:4}}>
+            <span style={{fontSize:17}}>🧬</span>
+            <h1 style={{fontSize:17,fontWeight:700,color:'#1a1a2e',fontFamily:"'Lora',serif"}}>{currentArt?.title}</h1>
+          </div>
+          <div style={{fontSize:10,color:'#aaa',fontFamily:"'DM Mono',monospace",letterSpacing:1}}>STRICT RAG · FONTE: SEU PDF · 10 TÓPICOS</div>
+        </div>
+        {topics.map((content,i)=><TopicBlock key={i} icon={TOPIC_ICONS[i]} name={TOPIC_NAMES[i]} colorHex={TOPIC_COLORS[i]} content={content} index={i} onHL={onHL} highlights={currentHL}/>)}
+      </>}
+
+      {view==='resumo'&&!topics&&<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'70vh'}}>
+        <div style={{border:'2px dashed #ddd',borderRadius:20,padding:'40px 44px',textAlign:'center',background:'#fff'}}>
+          <div style={{fontSize:46,marginBottom:12}}>📄</div>
+          <div style={{fontSize:14,fontFamily:"'Lora',serif",color:'#555',marginBottom:8}}>Nenhum artigo selecionado</div>
+          <div style={{fontSize:11,fontFamily:"'DM Mono',monospace",color:'#bbb',lineHeight:1.9}}>
+            Arraste um PDF na barra lateral.<br/>A IA usa apenas seu documento.<br/><br/>
+            <span style={{color:'#43A047',fontWeight:700}}>Strict RAG ativo</span>
+          </div>
+          <div style={{marginTop:16,display:'flex',flexWrap:'wrap',gap:5,justifyContent:'center'}}>
+            {TUMOR_GROUPS.slice(0,8).map(g=><span key={g.id} style={{fontSize:10,padding:'2px 9px',borderRadius:20,background:g.color+'12',color:g.color,fontFamily:"'DM Mono',monospace",border:`1px solid ${g.color}30`}}>{g.emoji} {g.label}</span>)}
+          </div>
+        </div>
+      </div>}
+    </div>
+
+    {/* Painel direito */}
+    <div className="splitR" style={{flex:'0 0 40%',display:'flex',flexDirection:'column',overflow:'hidden',background:'#fff'}}>
+      <div style={{display:'flex',borderBottom:'1.5px solid #f0f0ec',padding:'0 14px',flexShrink:0}}>
+        {[{id:'mapa',label:'🗺️ Mapa'},{id:'notes',label:'📝 Notas'},{id:'grifos',label:'🖍️ Grifos'}].map(tab=><button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{padding:'11px 11px',background:'none',border:'none',fontSize:11,fontWeight:600,color:activeTab===tab.id?'#1a1a2e':'#bbb',borderBottom:activeTab===tab.id?'2px solid #1a1a2e':'2px solid transparent',fontFamily:"'DM Mono',monospace",transition:'all .15s'}}>
+          {tab.label}{tab.id==='grifos'&&allHL.length>0&&<span style={{marginLeft:4,background:'#E65100',color:'#fff',borderRadius:20,padding:'1px 5px',fontSize:9}}>{allHL.length}</span>}
+        </button>)}
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:16}}>
+        {activeTab==='mapa'&&<div>
+          <div style={{fontSize:10,color:'#bbb',fontFamily:"'DM Mono',monospace",letterSpacing:1.5,textTransform:'uppercase',marginBottom:12}}>Mapa Mental · {currentArt?.title||'Sem artigo'}</div>
+          <div style={{background:'#fafaf8',borderRadius:12,padding:12,marginBottom:14,border:'1.5px solid #f0f0ec'}}>
+            <MindMap topics={topics} article={currentArt?.title} groupColor={currentGrp?.color}/>
+          </div>
+          {topics&&<div>
+            <div style={{fontSize:10,color:'#bbb',fontFamily:"'DM Mono',monospace",letterSpacing:1.5,marginBottom:8}}>ÍNDICE RÁPIDO</div>
+            {TOPIC_NAMES.map((name,i)=><div key={i} style={{display:'flex',alignItems:'center',gap:7,padding:'5px 9px',borderRadius:7,marginBottom:3,background:'#fafaf8'}}>
+              <span style={{fontSize:11}}>{TOPIC_ICONS[i]}</span>
+              <span style={{fontSize:11,color:'#444',fontFamily:"'Lora',serif"}}>{name}</span>
+              <span style={{width:6,height:6,borderRadius:'50%',background:TOPIC_COLORS[i],marginLeft:'auto',flexShrink:0}}/>
+            </div>)}
+          </div>}
+        </div>}
+        {activeTab==='notes'&&<div style={{display:'flex',flexDirection:'column',gap:10}}>
+          <div style={{fontSize:10,color:'#bbb',fontFamily:"'DM Mono',monospace",letterSpacing:1.5,textTransform:'uppercase'}}>Notas · {currentArt?.title||'Selecione um artigo'}</div>
+          <textarea value={notes[selected]||''} onChange={e=>setNotes(p=>({...p,[selected]:e.target.value}))}
+            placeholder="Suas notas sobre este artigo…" rows={14}
+            style={{padding:12,border:'1.5px solid #e8e8e4',borderRadius:10,fontSize:13,fontFamily:"'Lora',serif",color:'#333',lineHeight:1.8,background:'#fafaf8',resize:'none'}}/>
+          <div style={{display:'flex',justifyContent:'flex-end'}}>
+            <button onClick={()=>{const blob=new Blob([`NOTAS — ${currentArt?.title}\n${'='.repeat(40)}\n\n${notes[selected]||''}`],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`notas-${currentArt?.title?.replace(/\s/g,'-')}.txt`;a.click();}}
+              style={{padding:'6px 13px',background:'#1a1a2e',color:'#fff',border:'none',borderRadius:7,fontSize:11,fontFamily:"'DM Mono',monospace"}}>↓ Exportar</button>
+          </div>
+        </div>}
+        {activeTab==='grifos'&&<div>
+          <div style={{fontSize:10,color:'#bbb',fontFamily:"'DM Mono',monospace",letterSpacing:1.5,textTransform:'uppercase',marginBottom:12}}>Grifos · {allHL.length} trechos</div>
+          {allHL.length===0?<div style={{padding:'18px 10px',textAlign:'center',color:'#bbb',fontSize:12,fontFamily:"'Lora',serif",lineHeight:1.8}}>Selecione texto em qualquer tópico<br/>e escolha uma cor para grifar.</div>
+          :<>
+            {articles.filter(a=>highlights[a.id]?.length>0).map(art=>{const g=TUMOR_GROUPS.find(x=>x.id===art.group);return<div key={art.id} style={{marginBottom:18}}>
+              <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:8}}>
+                {g&&<span style={{fontSize:11}}>{g.emoji}</span>}
+                <div style={{fontSize:10,fontWeight:700,color:g?.color||'#1a1a2e',fontFamily:"'DM Mono',monospace",letterSpacing:1,textTransform:'uppercase'}}>{art.title}</div>
+              </div>
+              {(highlights[art.id]||[]).map((hl,i)=><div key={i} style={{padding:'9px 11px',borderRadius:8,marginBottom:5,background:hl.color.bg,borderLeft:`3px solid ${hl.color.border}`,position:'relative'}}>
+                <div style={{fontSize:9,fontWeight:700,color:hl.color.border,fontFamily:"'DM Mono',monospace",marginBottom:3,letterSpacing:1}}>{hl.topic.toUpperCase()}</div>
+                <div style={{fontSize:12,color:'#333',fontFamily:"'Lora',serif",lineHeight:1.6}}>"{hl.text}"</div>
+                <button onClick={()=>setHighlights(p=>({...p,[art.id]:(p[art.id]||[]).filter((_,j)=>j!==i)}))} style={{position:'absolute',top:7,right:7,background:'none',border:'none',color:'#bbb',fontSize:13}}>×</button>
+              </div>)}
+            </div>;})}
+            <button onClick={()=>{const txt=articles.filter(a=>highlights[a.id]?.length>0).map(a=>`=== ${a.title} ===\n`+(highlights[a.id]||[]).map(h=>`[${h.topic}]\n"${h.text}"\n`).join('\n')).join('\n\n');const blob=new Blob([txt],{type:'text/plain'});const el=document.createElement('a');el.href=URL.createObjectURL(blob);el.download='grifos.txt';el.click();}}
+              style={{width:'100%',padding:'8px',background:'#1a1a2e',color:'#fff',border:'none',borderRadius:8,fontSize:11,fontFamily:"'DM Mono',monospace"}}>↓ Exportar grifos</button>
+          </>}
+        </div>}
+      </div>
+    </div>
+  </div>;
+}
+
+// ── NotesSection ──────────────────────────────────────────────────────────────
+function NoteForm({initial,onSave,onCancel}){
+  const empty={id:uid(),title:'',body:'',tumor:'',scenario:'',theme:'',source:'teoc',importance:2,color:'blue',tags:'',date:new Date().toISOString().slice(0,10)};
+  const[form,setForm]=useState(initial||empty);
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const grp=TUMOR_GROUPS.find(g=>g.id===form.tumor);
+  const color=CARD_COLORS.find(c=>c.id===form.color)||CARD_COLORS[0];
+  return<div style={{background:'#fff',borderRadius:14,padding:22,border:'1.5px solid #e8e8e4',maxWidth:720,margin:'0 auto'}}>
+    <div style={{fontSize:10,color:'#aaa',letterSpacing:1.5,textTransform:'uppercase',marginBottom:16,fontFamily:"'DM Mono',monospace"}}>{initial?'✏️ Editar Nota':'+ Nova Nota'}</div>
+    <input value={form.title} onChange={e=>set('title',e.target.value)} placeholder="Título da nota"
+      style={{width:'100%',padding:'10px 13px',border:'1.5px solid #e8e8e4',borderRadius:9,fontSize:14,fontWeight:600,color:'#1a1a2e',background:'#fafaf8',marginBottom:12,fontFamily:"'Lora',serif"}}/>
+    <div className="grid3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:9,marginBottom:12}}>
+      <div><label style={{fontSize:9,color:'#aaa',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:4,fontFamily:"'DM Mono',monospace"}}>Grupo Tumoral</label>
+        <select value={form.tumor} onChange={e=>set('tumor',e.target.value)} style={{width:'100%',padding:'8px 10px',border:`1.5px solid ${grp?grp.color+'60':'#e8e8e4'}`,borderRadius:8,fontSize:12,background:grp?grp.color+'10':'#fafaf8',color:grp?grp.color:'#666'}}>
+          <option value="">— Selecione —</option>{TUMOR_GROUPS.map(g=><option key={g.id} value={g.id}>{g.emoji} {g.label}</option>)}
+        </select></div>
+      <div><label style={{fontSize:9,color:'#aaa',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:4,fontFamily:"'DM Mono',monospace"}}>Cenário</label>
+        <select value={form.scenario} onChange={e=>set('scenario',e.target.value)} style={{width:'100%',padding:'8px 10px',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,background:'#fafaf8',color:'#555'}}>
+          <option value="">— Selecione —</option>{SCENARIOS.map(s=><option key={s} value={s}>{s}</option>)}
+        </select></div>
+      <div><label style={{fontSize:9,color:'#aaa',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:4,fontFamily:"'DM Mono',monospace"}}>Tema</label>
+        <select value={form.theme} onChange={e=>set('theme',e.target.value)} style={{width:'100%',padding:'8px 10px',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,background:'#fafaf8',color:'#555'}}>
+          <option value="">— Selecione —</option>{THEMES.map(t=><option key={t} value={t}>{t}</option>)}
+        </select></div>
+    </div>
+    <div className="grid3" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:9,marginBottom:12}}>
+      <div><label style={{fontSize:9,color:'#aaa',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:4,fontFamily:"'DM Mono',monospace"}}>Fonte</label>
+        <select value={form.source} onChange={e=>set('source',e.target.value)} style={{width:'100%',padding:'8px 10px',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,background:'#fafaf8',color:'#555'}}>
+          {SOURCES.map(s=><option key={s.id} value={s.id}>{s.emoji} {s.label}</option>)}
+        </select></div>
+      <div><label style={{fontSize:9,color:'#aaa',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:4,fontFamily:"'DM Mono',monospace"}}>Importância</label>
+        <select value={form.importance} onChange={e=>set('importance',Number(e.target.value))} style={{width:'100%',padding:'8px 10px',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,background:'#fafaf8',color:'#555'}}>
+          {IMPORTANCE.map(i=><option key={i.id} value={i.id}>{i.label}</option>)}
+        </select></div>
+      <div><label style={{fontSize:9,color:'#aaa',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:4,fontFamily:"'DM Mono',monospace"}}>Cor</label>
+        <div style={{display:'flex',gap:6,paddingTop:5}}>{CARD_COLORS.map(c=><button key={c.id} onClick={()=>set('color',c.id)} style={{width:20,height:20,borderRadius:'50%',background:c.bg,border:`2.5px solid ${form.color===c.id?c.border:'transparent'}`,flexShrink:0}}/>)}</div>
+      </div>
+    </div>
+    <input value={form.tags} onChange={e=>set('tags',e.target.value)} placeholder="Tags: PALOMA-2, palbociclib (separadas por vírgula)"
+      style={{width:'100%',padding:'8px 13px',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,background:'#fafaf8',color:'#555',marginBottom:12,fontFamily:"'DM Mono',monospace"}}/>
+    <textarea value={form.body} onChange={e=>set('body',e.target.value)} rows={9}
+      placeholder={"Conteúdo da nota…\n\n- Use '- ' para listas\n- Use | col | col | para tabelas\n\n| Droga | HR PFS | p-valor |\n|---|---|---|\n| Palbociclib | 0.58 | <0.001 |"}
+      style={{width:'100%',padding:12,border:'1.5px solid #e8e8e4',borderRadius:10,fontSize:13,lineHeight:1.8,background:'#fafaf8',color:'#333',resize:'vertical',marginBottom:14,fontFamily:"'Lora',serif"}}/>
+    <div style={{display:'flex',gap:9,justifyContent:'flex-end'}}>
+      <button onClick={onCancel} style={{padding:'8px 18px',background:'transparent',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,color:'#888',fontFamily:"'DM Mono',monospace"}}>Cancelar</button>
+      <button onClick={()=>form.title&&form.body&&onSave(form)} disabled={!form.title||!form.body}
+        style={{padding:'8px 22px',background:form.title&&form.body?color.border:'#ddd',color:'#fff',border:'none',borderRadius:8,fontSize:12,fontWeight:700,fontFamily:"'DM Mono',monospace"}}>💾 Salvar</button>
+    </div>
+  </div>;
+}
+
+function NoteCard({note,onEdit,onDelete,onToggleStar}){
+  const[expanded,setExpanded]=useState(false);
+  const color=CARD_COLORS.find(c=>c.id===note.color)||CARD_COLORS[0];
+  const grp=TUMOR_GROUPS.find(g=>g.id===note.tumor);
+  const src=SOURCES.find(s=>s.id===note.source);
+  const imp=IMPORTANCE.find(i=>i.id===note.importance);
+  const tags=note.tags?note.tags.split(',').map(t=>t.trim()).filter(Boolean):[];
+  return<div className="card" style={{border:`1.5px solid ${color.border}40`,borderLeft:`4px solid ${color.border}`,borderRadius:'0 12px 12px 0',background:'#fff',marginBottom:10,overflow:'hidden'}}>
+    <div style={{padding:'12px 14px 9px',background:color.bg+'60',cursor:'pointer'}} onClick={()=>setExpanded(e=>!e)}>
+      <div style={{display:'flex',alignItems:'flex-start',gap:9}}>
+        <div style={{flex:1}}>
+          <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:6,flexWrap:'wrap'}}>
+            {imp&&<span style={{fontSize:11}}>{imp.label.split(' ')[0]}</span>}
+            {grp&&<span className="tag" style={{background:grp.color+'15',color:grp.color}}>{grp.emoji} {grp.label}</span>}
+            {note.scenario&&<span className="tag" style={{background:'#f0f0ec',color:'#666'}}>{note.scenario}</span>}
+            {note.theme&&<span className="tag" style={{background:'#e8f5e9',color:'#2E7D32'}}>#{note.theme}</span>}
+            {src&&<span className="tag" style={{background:src.color+'12',color:src.color}}>{src.emoji} {src.label}</span>}
+          </div>
+          <div style={{fontSize:13,fontWeight:700,color:'#1a1a2e',lineHeight:1.4,fontFamily:"'Lora',serif"}}>{note.title}</div>
+          {tags.length>0&&<div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:5}}>{tags.map((t,i)=><span key={i} style={{fontSize:10,color:'#999',background:'#f5f5f0',padding:'1px 6px',borderRadius:20,fontFamily:"'DM Mono',monospace"}}>#{t}</span>)}</div>}
+        </div>
+        <div style={{display:'flex',gap:3,flexShrink:0,alignItems:'center'}}>
+          <button onClick={e=>{e.stopPropagation();onToggleStar(note.id);}} style={{fontSize:13,background:'none',border:'none',color:note.starred?'#F9A825':'#ccc',padding:'2px 3px'}}>★</button>
+          <button onClick={e=>{e.stopPropagation();onEdit(note);}} style={{fontSize:12,background:'none',border:'none',color:'#aaa',padding:'2px 3px'}}>✏️</button>
+          <button onClick={e=>{e.stopPropagation();onDelete(note.id);}} style={{fontSize:14,background:'none',border:'none',color:'#ccc',padding:'2px 3px'}}>×</button>
+          <span style={{fontSize:10,color:'#ccc',marginLeft:2}}>{expanded?'▲':'▼'}</span>
+        </div>
+      </div>
+    </div>
+    {expanded&&<div style={{padding:'12px 16px 14px'}}>
+      <RichText text={note.body}/>
+      <div style={{fontSize:10,color:'#ccc',marginTop:12,fontFamily:"'DM Mono',monospace"}}>{note.date}</div>
+    </div>}
+  </div>;
+}
+
+function NotesSection(){
+  const[notes,setNotes]=useState(()=>loadNotes());
+  const[view,setView]=useState('list');
+  const[editing,setEditing]=useState(null);
+  const[filters,setFilters]=useState({});
+  const[sortBy,setSortBy]=useState('date');
+
+  useEffect(()=>{saveNotes(notes);},[notes]);
+
+  const saveNote=note=>{setNotes(prev=>{const idx=prev.findIndex(n=>n.id===note.id);if(idx>=0){const next=[...prev];next[idx]=note;return next;}return[note,...prev];});setView('list');setEditing(null);};
+  const deleteNote=id=>{if(window.confirm('Apagar esta nota?'))setNotes(prev=>prev.filter(n=>n.id!==id));};
+  const toggleStar=id=>setNotes(prev=>prev.map(n=>n.id===id?{...n,starred:!n.starred}:n));
+
+  const filtered=useMemo(()=>{
+    let list=view==='starred'?notes.filter(n=>n.starred):notes;
+    const{search,tumor,scenario,theme,source,importance}=filters;
+    if(search){const q=search.toLowerCase();list=list.filter(n=>[n.title,n.body,n.tags].join(' ').toLowerCase().includes(q));}
+    if(tumor?.length)list=list.filter(n=>tumor.includes(n.tumor));
+    if(scenario?.length)list=list.filter(n=>scenario.includes(n.scenario));
+    if(theme?.length)list=list.filter(n=>theme.includes(n.theme));
+    if(source?.length)list=list.filter(n=>source.includes(n.source));
+    if(importance?.length)list=list.filter(n=>importance.includes(String(n.importance)));
+    if(sortBy==='importance')list=[...list].sort((a,b)=>(b.importance||0)-(a.importance||0));
+    else if(sortBy==='tumor')list=[...list].sort((a,b)=>(a.tumor||'').localeCompare(b.tumor||''));
+    else list=[...list].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    return list;
+  },[notes,filters,sortBy,view]);
+
+  const toggle=(key,val)=>setFilters(f=>{const arr=f[key]||[];return{...f,[key]:arr.includes(val)?arr.filter(x=>x!==val):[...arr,val]};});
+  const isActive=(key,val)=>(filters[key]||[]).includes(val);
+  const counts=useMemo(()=>{const c={};notes.forEach(n=>{if(n.tumor)c[n.tumor]=(c[n.tumor]||0)+1;});return c;},[notes]);
+  const usedGroups=TUMOR_GROUPS.filter(g=>counts[g.id]);
+  const hasFilters=Object.values(filters).some(v=>Array.isArray(v)?v.length:v);
+
+  function FBtn({children,active,color,onClick}){return<button onClick={onClick} style={{width:'100%',display:'flex',alignItems:'center',gap:5,padding:'5px 12px',background:active?color+'15':'none',border:'none',textAlign:'left',borderLeft:active?`3px solid ${color}`:'3px solid transparent',fontSize:11,color:active?color:'#666',fontWeight:active?700:400,fontFamily:"'DM Mono',monospace"}}>{children}</button>;}
+  function Sec({label,children}){const[o,setO]=useState(true);return<div style={{marginBottom:3}}>
+    <button onClick={()=>setO(x=>!x)} style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',padding:'5px 12px',background:'none',border:'none'}}>
+      <span style={{fontSize:9,fontWeight:700,color:'#aaa',letterSpacing:1.5,textTransform:'uppercase',fontFamily:"'DM Mono',monospace"}}>{label}</span>
+      <span style={{fontSize:9,color:'#ccc'}}>{o?'▲':'▼'}</span>
+    </button>
+    {o&&<div style={{paddingBottom:4}}>{children}</div>}
+  </div>;}
+
+  return<div style={{display:'flex',flex:1,overflow:'hidden'}}>
+    {/* Filter sidebar */}
+    {(view==='list'||view==='starred')&&<aside className="sidebar" style={{width:190,background:'#fff',borderRight:'1.5px solid #e8e8e4',display:'flex',flexDirection:'column',flexShrink:0,overflowY:'auto',padding:'10px 0'}}>
+      <div style={{padding:'0 10px 10px'}}><input value={filters.search||''} onChange={e=>setFilters(f=>({...f,search:e.target.value}))} placeholder="🔍 Buscar…" style={{width:'100%',padding:'7px 10px',border:'1.5px solid #e8e8e4',borderRadius:9,fontSize:12,background:'#fafaf8',color:'#333',fontFamily:"'DM Mono',monospace"}}/></div>
+      <Sec label="Grupo Tumoral">
+        {!usedGroups.length&&<div style={{fontSize:10,color:'#ccc',padding:'3px 12px',fontFamily:"'DM Mono',monospace"}}>Nenhuma nota ainda</div>}
+        {usedGroups.map(g=><FBtn key={g.id} active={isActive('tumor',g.id)} color={g.color} onClick={()=>toggle('tumor',g.id)}>{g.emoji} {g.label} <span style={{marginLeft:'auto',fontSize:9,opacity:.6}}>{counts[g.id]}</span></FBtn>)}
+      </Sec>
+      <Sec label="Cenário">{SCENARIOS.map(s=><FBtn key={s} active={isActive('scenario',s)} color="#546E7A" onClick={()=>toggle('scenario',s)}>{s}</FBtn>)}</Sec>
+      <Sec label="Tema">{THEMES.map(t=><FBtn key={t} active={isActive('theme',t)} color="#5C6BC0" onClick={()=>toggle('theme',t)}>{t}</FBtn>)}</Sec>
+      <Sec label="Fonte">{SOURCES.map(s=><FBtn key={s.id} active={isActive('source',s.id)} color={s.color} onClick={()=>toggle('source',s.id)}>{s.emoji} {s.label}</FBtn>)}</Sec>
+      <Sec label="Importância">{IMPORTANCE.map(i=><FBtn key={i.id} active={isActive('importance',String(i.id))} color={i.color} onClick={()=>toggle('importance',String(i.id))}>{i.label}</FBtn>)}</Sec>
+      {hasFilters&&<div style={{padding:'8px 10px'}}><button onClick={()=>setFilters({})} style={{width:'100%',padding:'6px',background:'#FFEBEE',color:'#D32F2F',border:'none',borderRadius:8,fontSize:11,fontFamily:"'DM Mono',monospace"}}>× Limpar</button></div>}
+    </aside>}
+
+    <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
+      {/* Toolbar notas */}
+      <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:16,flexWrap:'wrap'}}>
+        {[{id:'list',label:'📋 Todas'},{id:'starred',label:'★ Favoritas'},{id:'new',label:'+ Nova Nota'}].map(tab=><button key={tab.id} onClick={()=>{setView(tab.id);setEditing(null);}} style={{padding:'6px 12px',background:view===tab.id?'#1a1a2e':'#f0f0ec',color:view===tab.id?'#fff':'#666',border:'none',borderRadius:20,fontSize:11,fontFamily:"'DM Mono',monospace",fontWeight:view===tab.id?700:400}}>{tab.label}</button>)}
+        <div style={{flex:1}}/>
+        {[{id:'date',l:'Data'},{id:'importance',l:'Importância'},{id:'tumor',l:'Grupo'}].map(s=><button key={s.id} onClick={()=>setSortBy(s.id)} style={{padding:'4px 9px',borderRadius:20,border:'none',fontSize:10,background:sortBy===s.id?'#1a1a2e':'#f0f0ec',color:sortBy===s.id?'#fff':'#888',fontFamily:"'DM Mono',monospace"}}>{s.l}</button>)}
+        <span style={{fontSize:11,color:'#bbb',fontFamily:"'DM Mono',monospace"}}>{filtered.length} nota{filtered.length!==1?'s':''}</span>
+      </div>
+
+      {(view==='new'||editing)&&<NoteForm initial={editing} onSave={saveNote} onCancel={()=>{setView('list');setEditing(null);}}/>}
+
+      {(view==='list'||view==='starred')&&(
+        filtered.length===0
+          ?<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'55vh'}}>
+            <div style={{border:'2px dashed #ddd',borderRadius:20,padding:'36px 44px',textAlign:'center',background:'#fff'}}>
+              <div style={{fontSize:44,marginBottom:12}}>📓</div>
+              <div style={{fontSize:14,fontFamily:"'Lora',serif",color:'#555',marginBottom:8}}>{view==='starred'?'Nenhuma favorita':notes.length===0?'Caderno vazio':'Nenhuma nota encontrada'}</div>
+              {notes.length===0&&<button onClick={()=>setView('new')} style={{marginTop:14,padding:'9px 22px',background:'#1a1a2e',color:'#fff',border:'none',borderRadius:9,fontSize:12,fontFamily:"'DM Mono',monospace"}}>+ Criar primeira nota</button>}
+            </div>
+          </div>
+          :<div style={{maxWidth:820,margin:'0 auto'}}>
+            {sortBy==='tumor'
+              ?TUMOR_GROUPS.map(grp=>{const gn=filtered.filter(n=>n.tumor===grp.id);if(!gn.length)return null;return<div key={grp.id} style={{marginBottom:24}}>
+                <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:10,paddingBottom:7,borderBottom:`2px solid ${grp.color}30`}}>
+                  <span style={{fontSize:16}}>{grp.emoji}</span>
+                  <span style={{fontSize:12,fontWeight:700,color:grp.color,letterSpacing:.5,fontFamily:"'DM Mono',monospace"}}>{grp.label.toUpperCase()}</span>
+                  <span style={{fontSize:10,background:grp.color+'20',color:grp.color,borderRadius:20,padding:'1px 7px',fontFamily:"'DM Mono',monospace"}}>{gn.length}</span>
+                </div>
+                {gn.map(n=><NoteCard key={n.id} note={n} onEdit={n=>{setEditing(n);setView('edit');}} onDelete={deleteNote} onToggleStar={toggleStar}/>)}
+              </div>;})
+              :filtered.map(n=><NoteCard key={n.id} note={n} onEdit={n=>{setEditing(n);setView('edit');}} onDelete={deleteNote} onToggleStar={toggleStar}/>)
+            }
+          </div>
+      )}
+    </div>
+  </div>;
+}
+
+// ── Settings ─────────────────────────────────────────────────────────────────
+function Settings({apiKey,setApiKey,notes,articles}){
+  const[key,setKey]=useState(apiKey);
+  const[saved,setSaved]=useState(false);
+  const importRef=useRef(null);
+  const save=()=>{setApiKey(key);localStorage.setItem('oncostudy_apikey',key);setSaved(true);setTimeout(()=>setSaved(false),2000);};
+  return<div style={{flex:1,overflowY:'auto',padding:'32px 28px'}}>
+    <div style={{maxWidth:560,margin:'0 auto'}}>
+      <h2 style={{fontSize:17,fontWeight:700,color:'#1a1a2e',fontFamily:"'Lora',serif",marginBottom:6}}>⚙️ Configurações</h2>
+      <p style={{fontSize:12,color:'#888',fontFamily:"'DM Mono',monospace",marginBottom:28,lineHeight:1.7}}>Configure sua API Key para usar a leitura de PDFs com IA na seção Artigos.</p>
+
+      <div style={{background:'#fff',border:'1.5px solid #e8e8e4',borderRadius:14,padding:22,marginBottom:20}}>
+        <label style={{fontSize:10,color:'#aaa',letterSpacing:1.5,textTransform:'uppercase',display:'block',marginBottom:10,fontFamily:"'DM Mono',monospace"}}>🔑 Anthropic API Key</label>
+        <input type="password" value={key} onChange={e=>setKey(e.target.value)} placeholder="sk-ant-api03-..."
+          style={{width:'100%',padding:'10px 13px',border:'1.5px solid #e8e8e4',borderRadius:9,fontSize:13,background:'#fafaf8',color:'#333',marginBottom:12,fontFamily:"'DM Mono',monospace"}}/>
+        <div style={{fontSize:11,color:'#bbb',fontFamily:"'DM Mono',monospace",lineHeight:1.7,marginBottom:14}}>
+          Obtenha em: <a href="https://console.anthropic.com/settings/api-keys" target="_blank" style={{color:'#1E88E5'}}>console.anthropic.com</a><br/>
+          A chave fica salva apenas no seu navegador.
+        </div>
+        <button onClick={save} style={{padding:'9px 22px',background:'#1a1a2e',color:'#fff',border:'none',borderRadius:8,fontSize:12,fontFamily:"'DM Mono',monospace"}}>
+          {saved?'✅ Salvo!':'💾 Salvar API Key'}
+        </button>
+      </div>
+
+      <div style={{background:'#fff',border:'1.5px solid #e8e8e4',borderRadius:14,padding:22,marginBottom:20}}>
+        <label style={{fontSize:10,color:'#aaa',letterSpacing:1.5,textTransform:'uppercase',display:'block',marginBottom:12,fontFamily:"'DM Mono',monospace"}}>📦 Backup de Dados</label>
+        <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+          <button onClick={()=>exportAll(notes,articles)} style={{padding:'9px 18px',background:'#1a1a2e',color:'#fff',border:'none',borderRadius:8,fontSize:12,fontFamily:"'DM Mono',monospace"}}>↓ Exportar tudo</button>
+          <button onClick={()=>importRef.current?.click()} style={{padding:'9px 18px',background:'transparent',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,color:'#666',fontFamily:"'DM Mono',monospace"}}>↑ Importar backup</button>
+          <input ref={importRef} type="file" accept=".json" style={{display:'none'}}
+            onChange={async e=>{const f=e.target.files[0];if(!f)return;try{const d=await importAll(f);if(window.confirm(`Importar ${(d.notes?.length||0)} notas e ${(d.articles?.length||0)} artigos?`)){if(d.notes)saveNotes(d.notes);if(d.articles)saveArticles(d.articles);window.location.reload();}}catch{alert('Arquivo inválido');}e.target.value='';}}/>
+        </div>
+        <div style={{fontSize:11,color:'#bbb',fontFamily:"'DM Mono',monospace",lineHeight:1.7,marginTop:12}}>
+          O backup exporta notas e artigos em JSON.<br/>Use para sincronizar entre dispositivos.
+        </div>
+      </div>
+
+      <div style={{background:'#fff',border:'1.5px solid #e8e8e4',borderRadius:14,padding:22}}>
+        <label style={{fontSize:10,color:'#aaa',letterSpacing:1.5,textTransform:'uppercase',display:'block',marginBottom:12,fontFamily:"'DM Mono',monospace"}}>📊 Resumo</label>
+        <div style={{display:'flex',gap:16}}>
+          {[{label:'Artigos',val:articles.length},{label:'Notas',val:notes.length},{label:'Grupos',val:new Set([...articles.map(a=>a.group),...notes.map(n=>n.tumor)].filter(Boolean)).size}].map(s=><div key={s.label} style={{textAlign:'center',flex:1,padding:'14px',background:'#fafaf8',borderRadius:10}}>
+            <div style={{fontSize:22,fontWeight:700,color:'#1a1a2e',fontFamily:"'DM Mono',monospace"}}>{s.val}</div>
+            <div style={{fontSize:10,color:'#aaa',fontFamily:"'DM Mono',monospace",marginTop:3}}>{s.label}</div>
+          </div>)}
+        </div>
+      </div>
+    </div>
+  </div>;
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+function App(){
+  const[tab,setTab]=useState('wiki');
+  const[apiKey,setApiKey]=useState(()=>localStorage.getItem('oncostudy_apikey')||'');
+  const[notes]=useState(()=>loadNotes());
+  const[articles]=useState(()=>loadArticles());
+
+  const tabs=[
+    {id:'wiki',  label:'🧬 Artigos',  desc:'Leitor de PDFs com IA'},
+    {id:'notes', label:'📓 Caderno',  desc:'Notas de estudo'},
+    {id:'config',label:'⚙️',          desc:'Configurações'},
+  ];
+
+  return<div style={{minHeight:'100vh',display:'flex',flexDirection:'column',background:'#f5f5f0'}}>
+    {/* Header */}
+    <header style={{background:'#1a1a2e',padding:'0 20px',height:52,display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <span style={{fontSize:20}}>🧬</span>
+        <span style={{fontSize:17,fontWeight:700,color:'#fff',fontFamily:"'Lora',serif"}}>OncoStudy</span>
+        <span className="hide-mob" style={{fontSize:9,fontWeight:600,color:'#43A047',background:'#43A04720',padding:'2px 8px',borderRadius:20,letterSpacing:1.5,fontFamily:"'DM Mono',monospace",textTransform:'uppercase',marginLeft:4}}>
+          {apiKey?'IA Ativa ✓':'Configure a API Key ⚙️'}
+        </span>
+      </div>
+      <div style={{display:'flex',gap:3}}>
+        {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{padding:'7px 14px',background:tab===t.id?'rgba(255,255,255,0.12)':'transparent',color:tab===t.id?'#fff':'#888',border:'none',borderRadius:8,fontSize:12,fontWeight:tab===t.id?700:400,fontFamily:"'DM Mono',monospace",transition:'all .15s'}}>
+          {t.label}
+        </button>)}
+      </div>
+    </header>
+
+    {/* Content */}
+    <div style={{display:'flex',flex:1,overflow:'hidden',height:'calc(100vh - 52px)'}}>
+      {tab==='wiki' &&<WikiSection apiKey={apiKey}/>}
+      {tab==='notes'&&<NotesSection/>}
+      {tab==='config'&&<Settings apiKey={apiKey} setApiKey={setApiKey} notes={notes} articles={articles}/>}
+    </div>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
