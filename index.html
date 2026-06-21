@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Lora',serif;background:#f5f5f0}
@@ -75,13 +76,76 @@ const TOPIC_NAMES=['Título Formatado','Racional','Desenho do Estudo','Populaç�
 const TOPIC_COLORS=['#1E88E5','#1E88E5','#1E88E5','#1E88E5','#1E88E5','#43A047','#43A047','#E65100','#D32F2F','#43A047'];
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2);
 
-// ── Storage ─────────────────────────────────────────────────────────────────
+// ── Storage (Supabase com fallback em cache local) ────────────────────────────
 const NOTES_KEY='oncostudy_notes_v1';
 const ARTICLES_KEY='oncostudy_articles_v1';
-const loadNotes=()=>{try{const r=localStorage.getItem(NOTES_KEY);return r?JSON.parse(r):[]}catch{return[]}};
-const loadArticles=()=>{try{const r=localStorage.getItem(ARTICLES_KEY);return r?JSON.parse(r):[]}catch{return[]}};
-const saveNotes=n=>{try{localStorage.setItem(NOTES_KEY,JSON.stringify(n))}catch{}};
-const saveArticles=a=>{try{localStorage.setItem(ARTICLES_KEY,JSON.stringify(a))}catch{}};
+const DEVICE_KEY='oncostudy_device_id';
+
+const SUPABASE_URL='https://kwjzrfnofrjstzuxhlcj.supabase.co';
+const SUPABASE_ANON_KEY='sb_publishable_kvH94M-mcd82Li8obREsFA_i5eDgxWL';
+const supabase=(window.supabase&&SUPABASE_URL&&SUPABASE_ANON_KEY)
+  ?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY)
+  :null;
+
+// Identifica este "usuário" sem precisar de login — um ID fixo guardado no
+// próprio navegador. Todos os navegadores que usarem o MESMO valor aqui verão
+// os mesmos dados. Por padrão cada instalação gera o seu, então para
+// compartilhar entre iPhone e PC, copie o valor gerado em um e cole no outro
+// (Configurações → ver "ID do dispositivo" no app, se exposto na UI) ou força
+// manualmente abaixo trocando null por uma string fixa, ex: 'larissa'.
+const FORCED_USER_ID='larissa';
+const getUserId=()=>{
+  if(FORCED_USER_ID)return FORCED_USER_ID;
+  try{
+    let id=localStorage.getItem(DEVICE_KEY);
+    if(!id){id=uid();localStorage.setItem(DEVICE_KEY,id);}
+    return id;
+  }catch{return 'default';}
+};
+const USER_ID=getUserId();
+
+const loadNotes=async()=>{
+  if(!supabase){try{const r=localStorage.getItem(NOTES_KEY);return r?JSON.parse(r):[]}catch{return[]}}
+  try{
+    const{data,error}=await supabase.from('oncostudy_data').select('notes').eq('user_id',USER_ID).maybeSingle();
+    if(error)throw error;
+    const notes=data?.notes||[];
+    try{localStorage.setItem(NOTES_KEY,JSON.stringify(notes))}catch{}
+    return notes;
+  }catch(e){
+    console.error('Falha ao carregar notas do Supabase, usando cache local:',e);
+    try{const r=localStorage.getItem(NOTES_KEY);return r?JSON.parse(r):[]}catch{return[]}
+  }
+};
+const loadArticles=async()=>{
+  if(!supabase){try{const r=localStorage.getItem(ARTICLES_KEY);return r?JSON.parse(r):[]}catch{return[]}}
+  try{
+    const{data,error}=await supabase.from('oncostudy_data').select('articles').eq('user_id',USER_ID).maybeSingle();
+    if(error)throw error;
+    const articles=data?.articles||[];
+    try{localStorage.setItem(ARTICLES_KEY,JSON.stringify(articles))}catch{}
+    return articles;
+  }catch(e){
+    console.error('Falha ao carregar artigos do Supabase, usando cache local:',e);
+    try{const r=localStorage.getItem(ARTICLES_KEY);return r?JSON.parse(r):[]}catch{return[]}
+  }
+};
+const saveNotes=async n=>{
+  try{localStorage.setItem(NOTES_KEY,JSON.stringify(n))}catch{}
+  if(!supabase)return;
+  try{
+    const{error}=await supabase.from('oncostudy_data').upsert({user_id:USER_ID,notes:n,updated_at:new Date().toISOString()},{onConflict:'user_id'});
+    if(error)throw error;
+  }catch(e){console.error('Falha ao salvar notas no Supabase (mantido em cache local):',e);}
+};
+const saveArticles=async a=>{
+  try{localStorage.setItem(ARTICLES_KEY,JSON.stringify(a))}catch{}
+  if(!supabase)return;
+  try{
+    const{error}=await supabase.from('oncostudy_data').upsert({user_id:USER_ID,articles:a,updated_at:new Date().toISOString()},{onConflict:'user_id'});
+    if(error)throw error;
+  }catch(e){console.error('Falha ao salvar artigos no Supabase (mantido em cache local):',e);}
+};
 
 const exportAll=(notes,articles)=>{
   const blob=new Blob([JSON.stringify({notes,articles},null,2)],{type:'application/json'});
@@ -239,7 +303,8 @@ function MindMap({topics,article,groupColor}){
 
 // ── WikiSection ──────────────────────────────────────────────────────────────
 function WikiSection({apiKey}){
-  const[articles,setArticles]=useState(()=>loadArticles());
+  const[articles,setArticles]=useState([]);
+  const[loaded,setLoaded]=useState(false);
   const[selected,setSelected]=useState(null);
   const[topics,setTopics]=useState(null);
   const[notes,setNotes]=useState({});
@@ -253,7 +318,8 @@ function WikiSection({apiKey}){
   const[matrixGroup,setMatrixGroup]=useState('all');
   const fileRef=useRef(null);
 
-  useEffect(()=>{saveArticles(articles);},[articles]);
+  useEffect(()=>{loadArticles().then(a=>{setArticles(a);setLoaded(true);});},[]);
+  useEffect(()=>{if(loaded)saveArticles(articles);},[articles,loaded]);
 
   const currentArt=articles.find(a=>a.id===selected);
   const currentGrp=currentArt?TUMOR_GROUPS.find(g=>g.id===currentArt.group):null;
@@ -656,13 +722,15 @@ function NoteCard({note,onEdit,onDelete,onToggleStar}){
 }
 
 function NotesSection(){
-  const[notes,setNotes]=useState(()=>loadNotes());
+  const[notes,setNotes]=useState([]);
+  const[loaded,setLoaded]=useState(false);
   const[view,setView]=useState('list');
   const[editing,setEditing]=useState(null);
   const[filters,setFilters]=useState({});
   const[sortBy,setSortBy]=useState('date');
 
-  useEffect(()=>{saveNotes(notes);},[notes]);
+  useEffect(()=>{loadNotes().then(n=>{setNotes(n);setLoaded(true);});},[]);
+  useEffect(()=>{if(loaded)saveNotes(notes);},[notes,loaded]);
 
   const saveNote=note=>{setNotes(prev=>{const idx=prev.findIndex(n=>n.id===note.id);if(idx>=0){const next=[...prev];next[idx]=note;return next;}return[note,...prev];});setView('list');setEditing(null);};
   const deleteNote=id=>{if(window.confirm('Apagar esta nota?'))setNotes(prev=>prev.filter(n=>n.id!==id));};
@@ -781,7 +849,7 @@ function Settings({apiKey,setApiKey,notes,articles}){
           <button onClick={()=>exportAll(notes,articles)} style={{padding:'9px 18px',background:'#1a1a2e',color:'#fff',border:'none',borderRadius:8,fontSize:12,fontFamily:"'DM Mono',monospace"}}>↓ Exportar tudo</button>
           <button onClick={()=>importRef.current?.click()} style={{padding:'9px 18px',background:'transparent',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,color:'#666',fontFamily:"'DM Mono',monospace"}}>↑ Importar backup</button>
           <input ref={importRef} type="file" accept=".json" style={{display:'none'}}
-            onChange={async e=>{const f=e.target.files[0];if(!f)return;try{const d=await importAll(f);if(window.confirm(`Importar ${(d.notes?.length||0)} notas e ${(d.articles?.length||0)} artigos?`)){if(d.notes)saveNotes(d.notes);if(d.articles)saveArticles(d.articles);window.location.reload();}}catch{alert('Arquivo inválido');}e.target.value='';}}/>
+            onChange={async e=>{const f=e.target.files[0];if(!f)return;try{const d=await importAll(f);if(window.confirm(`Importar ${(d.notes?.length||0)} notas e ${(d.articles?.length||0)} artigos?`)){if(d.notes)await saveNotes(d.notes);if(d.articles)await saveArticles(d.articles);window.location.reload();}}catch{alert('Arquivo inválido');}e.target.value='';}}/>
         </div>
         <div style={{fontSize:11,color:'#bbb',fontFamily:"'DM Mono',monospace",lineHeight:1.7,marginTop:12}}>
           O backup exporta notas e artigos em JSON.<br/>Use para sincronizar entre dispositivos.
@@ -805,8 +873,9 @@ function Settings({apiKey,setApiKey,notes,articles}){
 function App(){
   const[tab,setTab]=useState('wiki');
   const[apiKey,setApiKey]=useState(()=>localStorage.getItem('oncostudy_apikey')||'');
-  const[notes]=useState(()=>loadNotes());
-  const[articles]=useState(()=>loadArticles());
+  const[notes,setNotes]=useState([]);
+  const[articles,setArticles]=useState([]);
+  useEffect(()=>{loadNotes().then(setNotes);loadArticles().then(setArticles);},[]);
 
   const tabs=[
     {id:'wiki',  label:'🧬 Artigos',  desc:'Leitor de PDFs com IA'},
