@@ -87,12 +87,6 @@ const supabase=(window.supabase&&SUPABASE_URL&&SUPABASE_ANON_KEY)
   ?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY)
   :null;
 
-// Identifica este "usuário" sem precisar de login — um ID fixo guardado no
-// próprio navegador. Todos os navegadores que usarem o MESMO valor aqui verão
-// os mesmos dados. Por padrão cada instalação gera o seu, então para
-// compartilhar entre iPhone e PC, copie o valor gerado em um e cole no outro
-// (Configurações → ver "ID do dispositivo" no app, se exposto na UI) ou força
-// manualmente abaixo trocando null por uma string fixa, ex: 'larissa'.
 const FORCED_USER_ID='larissa';
 const getUserId=()=>{
   if(FORCED_USER_ID)return FORCED_USER_ID;
@@ -195,6 +189,13 @@ function detectGroup(tumor=''){
   return'outros';
 }
 
+// ── Paleta de grifos (compartilhada Wiki + Caderno) ──────────────────────────
+const HL_COLORS=[
+  {id:'hl-y',bg:'#FFF59D',border:'#F9A825'},{id:'hl-b',bg:'#BBDEFB',border:'#1E88E5'},
+  {id:'hl-g',bg:'#C8E6C9',border:'#43A047'},{id:'hl-o',bg:'#FFE0B2',border:'#E65100'},
+  {id:'hl-r',bg:'#FFCDD2',border:'#D32F2F'},
+];
+
 // ── RichText ─────────────────────────────────────────────────────────────────
 function RichText({text,highlights,topic}){
   if(!text)return null;
@@ -207,10 +208,10 @@ function RichText({text,highlights,topic}){
         if(p.hl)return[p];
         const idx=p.text.indexOf(h.text);
         if(idx===-1)return[p];
-        return[{text:p.text.slice(0,idx),hl:false},{text:h.text,hl:true,color:h.color},{text:p.text.slice(idx+h.text.length),hl:false}].filter(x=>x.text);
+        return[{text:p.text.slice(0,idx),hl:false},{text:h.text,hl:true,color:h.color,bold:h.bold},{text:p.text.slice(idx+h.text.length),hl:false}].filter(x=>x.text);
       });
     });
-    return parts.map((p,i)=>p.hl?<mark key={i} style={{background:p.color.bg,borderBottom:`2px solid ${p.color.border}`,borderRadius:3,padding:'0 1px'}}>{p.text}</mark>:<span key={i}>{p.text}</span>);
+    return parts.map((p,i)=>p.hl?<mark key={i} style={{background:p.color.bg,borderBottom:`2px solid ${p.color.border}`,borderRadius:3,padding:'0 1px',fontWeight:p.bold?700:'inherit'}}>{p.text}</mark>:<span key={i}>{p.text}</span>);
   };
   const isSep=l=>/^\|[\s\-|:]+\|$/.test(l.trim());
   const isRow=l=>l.trim().startsWith('|')&&l.trim().endsWith('|');
@@ -243,12 +244,44 @@ function RichText({text,highlights,topic}){
   return<div>{els}</div>;
 }
 
+// ── HighlightToolbar — mini-barra flutuante de grifos + negrito ──────────────
+function HighlightToolbar({rect,onPick,onClose}){
+  if(!rect)return null;
+  return<div style={{position:'fixed',top:Math.max(8,rect.top-46),left:Math.min(window.innerWidth-200,Math.max(8,rect.left+rect.width/2-95)),zIndex:9999,background:'#1a1a2e',borderRadius:10,padding:'6px 8px',display:'flex',alignItems:'center',gap:6,boxShadow:'0 4px 18px rgba(0,0,0,.25)'}}>
+    {HL_COLORS.map(c=><button key={c.id} onMouseDown={e=>{e.preventDefault();onPick(c,false);}} title="Grifar"
+      style={{width:18,height:18,borderRadius:'50%',background:c.bg,border:`2px solid ${c.border}`,flexShrink:0}}/>)}
+    <div style={{width:1,height:18,background:'#ffffff30'}}/>
+    <button onMouseDown={e=>{e.preventDefault();onPick(HL_COLORS[0],true);}} title="Grifo + negrito"
+      style={{width:24,height:18,borderRadius:5,background:'#fff',border:'none',fontWeight:800,fontSize:12,color:'#1a1a2e',fontFamily:"'DM Mono',monospace"}}>B</button>
+    <button onMouseDown={e=>{e.preventDefault();onClose();}} title="Fechar"
+      style={{width:18,height:18,borderRadius:5,background:'transparent',border:'none',color:'#ffffff80',fontSize:14,lineHeight:1}}>×</button>
+  </div>;
+}
+
+// hook: captura seleção dentro de um container e devolve {text,rect}
+function useTextSelection(containerRef){
+  const[sel,setSel]=useState(null);
+  useEffect(()=>{
+    const handler=()=>{
+      const s=window.getSelection();
+      if(!s||s.isCollapsed||!s.rangeCount){setSel(null);return;}
+      const text=s.toString().trim();
+      if(!text||text.length>400){setSel(null);return;}
+      const range=s.getRangeAt(0);
+      const node=range.commonAncestorContainer;
+      const el=node.nodeType===3?node.parentElement:node;
+      if(containerRef.current&&containerRef.current.contains(el)){
+        const r=range.getBoundingClientRect();
+        setSel({text,rect:{top:r.top,left:r.left,width:r.width}});
+      }else setSel(null);
+    };
+    document.addEventListener('selectionchange',handler);
+    return()=>document.removeEventListener('selectionchange',handler);
+  },[containerRef]);
+  return[sel,setSel];
+}
+
 // ── TopicBlock ───────────────────────────────────────────────────────────────
-const HL_COLORS=[
-  {id:'hl-y',bg:'#FFF59D',border:'#F9A825'},{id:'hl-b',bg:'#BBDEFB',border:'#1E88E5'},
-  {id:'hl-g',bg:'#C8E6C9',border:'#43A047'},{id:'hl-o',bg:'#FFE0B2',border:'#E65100'},
-  {id:'hl-r',bg:'#FFCDD2',border:'#D32F2F'},
-];
 function TopicBlock({icon,name,colorHex,content,index,onHL,highlights}){
   const[open,setOpen]=useState(index<3);
   const[hlC,setHlC]=useState('hl-y');
@@ -280,7 +313,7 @@ function TopicBlock({icon,name,colorHex,content,index,onHL,highlights}){
   );
 }
 
-// ── MindMap ──────────────────────────────────────────────────────────────────
+// ── MindMap (Wiki) ───────────────────────────────────────────────────────────
 function MindMap({topics,article,groupColor}){
   if(!topics?.length)return<div style={{display:'flex',alignItems:'center',justifyContent:'center',height:160,color:'#bbb',fontSize:12,fontFamily:"'DM Mono',monospace"}}>Analise um artigo para ver o mapa</div>;
   const cx=155,cy=110;
@@ -551,12 +584,23 @@ TÓPICO 10 — IMPACTO 🩺💡: novo padrão? Ganho absoluto? Consistência nos
 }
 
 // ── NotesSection ──────────────────────────────────────────────────────────────
-function NoteForm({initial,onSave,onCancel}){
-  const empty={id:uid(),title:'',body:'',tumor:'',scenario:'',theme:'',source:'teoc',importance:2,color:'blue',tags:'',date:new Date().toISOString().slice(0,10)};
-  const[form,setForm]=useState(initial||empty);
+function NoteForm({initial,onSave,onCancel,apiKey}){
+  const empty={id:uid(),title:'',body:'',tumor:'',scenario:'',theme:'',source:'teoc',importance:2,color:'blue',tags:'',date:new Date().toISOString().slice(0,10),marks:[],mindmap:null};
+  const[form,setForm]=useState(initial?{marks:[],mindmap:null,...initial}:empty);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   const grp=TUMOR_GROUPS.find(g=>g.id===form.tumor);
   const color=CARD_COLORS.find(c=>c.id===form.color)||CARD_COLORS[0];
+
+  // grifos no editor — captura seleção dentro do preview de marcação
+  const previewRef=useRef(null);
+  const[sel,setSel]=useTextSelection(previewRef);
+  const addMark=(c,bold)=>{
+    if(!sel?.text)return;
+    setForm(f=>({...f,marks:[...(f.marks||[]),{text:sel.text,color:c,bold}]}));
+    window.getSelection()?.removeAllRanges();setSel(null);
+  };
+  const removeMark=i=>setForm(f=>({...f,marks:(f.marks||[]).filter((_,j)=>j!==i)}));
+
   return<div style={{background:'#fff',borderRadius:14,padding:22,border:'1.5px solid #e8e8e4',maxWidth:720,margin:'0 auto'}}>
     <div style={{fontSize:10,color:'#aaa',letterSpacing:1.5,textTransform:'uppercase',marginBottom:16,fontFamily:"'DM Mono',monospace"}}>{initial?'✏️ Editar Nota':'+ Nova Nota'}</div>
     <input value={form.title} onChange={e=>set('title',e.target.value)} placeholder="Título da nota"
@@ -593,41 +637,57 @@ function NoteForm({initial,onSave,onCancel}){
     <textarea value={form.body} onChange={e=>set('body',e.target.value)} rows={9}
       placeholder={"Conteúdo da nota…\n\n- Use '- ' para listas\n- Use | col | col | para tabelas\n\n| Droga | HR PFS | p-valor |\n|---|---|---|\n| Palbociclib | 0.58 | <0.001 |"}
       style={{width:'100%',padding:12,border:'1.5px solid #e8e8e4',borderRadius:10,fontSize:13,lineHeight:1.8,background:'#fafaf8',color:'#333',resize:'vertical',marginBottom:14,fontFamily:"'Lora',serif"}}/>
+
+    {/* Grifos no editor */}
+    {form.body.trim()&&<div style={{marginBottom:14,border:'1.5px solid #f0f0ec',borderRadius:10,overflow:'hidden'}}>
+      <div style={{padding:'7px 12px',background:'#fafaf8',borderBottom:'1px solid #f0f0ec',fontSize:9,color:'#aaa',letterSpacing:1,textTransform:'uppercase',fontFamily:"'DM Mono',monospace",display:'flex',alignItems:'center',gap:6}}>
+        🖍️ Pré-visualização — selecione um trecho para grifar
+        {(form.marks||[]).length>0&&<span style={{marginLeft:'auto',background:'#E65100',color:'#fff',borderRadius:20,padding:'1px 7px',fontSize:9}}>{(form.marks||[]).length} grifo(s)</span>}
+      </div>
+      <div ref={previewRef} style={{padding:'10px 14px',userSelect:'text',cursor:'text'}}>
+        <RichText text={form.body} highlights={(form.marks||[]).map(m=>({...m,topic:'__note__'}))} topic="__note__"/>
+      </div>
+      {(form.marks||[]).length>0&&<div style={{padding:'6px 12px 10px',borderTop:'1px solid #f0f0ec',display:'flex',flexWrap:'wrap',gap:5}}>
+        {(form.marks||[]).map((m,i)=><span key={i} style={{display:'inline-flex',alignItems:'center',gap:4,background:m.color.bg,borderBottom:`2px solid ${m.color.border}`,borderRadius:4,padding:'2px 6px',fontSize:11,fontFamily:"'Lora',serif",fontWeight:m.bold?700:400}}>
+          {m.text.length>22?m.text.slice(0,22)+'…':m.text}
+          <button onClick={()=>removeMark(i)} style={{background:'none',border:'none',color:'#999',fontSize:13,lineHeight:1,padding:0}}>×</button>
+        </span>)}
+      </div>}
+    </div>}
+
     <div style={{display:'flex',gap:9,justifyContent:'flex-end'}}>
       <button onClick={onCancel} style={{padding:'8px 18px',background:'transparent',border:'1.5px solid #e8e8e4',borderRadius:8,fontSize:12,color:'#888',fontFamily:"'DM Mono',monospace"}}>Cancelar</button>
       <button onClick={()=>form.title&&form.body&&onSave(form)} disabled={!form.title||!form.body}
         style={{padding:'8px 22px',background:form.title&&form.body?color.border:'#ddd',color:'#fff',border:'none',borderRadius:8,fontSize:12,fontWeight:700,fontFamily:"'DM Mono',monospace"}}>💾 Salvar</button>
     </div>
+
+    {sel&&<HighlightToolbar rect={sel.rect} onPick={addMark} onClose={()=>{window.getSelection()?.removeAllRanges();setSel(null);}}/>}
   </div>;
 }
 
-// ── NoteMindMap — gera mapa mental a partir do conteúdo da nota ─────────────
+// ── NoteMindMap — mapa local (heurística) OU mapa gerado pela IA ─────────────
 function NoteMindMap({note}){
   const grp=TUMOR_GROUPS.find(g=>g.id===note.tumor);
   const centerColor=grp?.color||'#1a1a2e';
 
-  // Extrai pontos principais do corpo da nota
-  const extractNodes=useMemo(()=>{
+  // Se houver mapa salvo da IA, usa-o; senão extrai por heurística local
+  const localNodes=useMemo(()=>{
     const lines=note.body.split('\n').filter(l=>l.trim());
     const nodes=[];
-    // Pega título, tema, cenário como nós fixos
     if(note.theme) nodes.push({label:note.theme,color:'#43A047',icon:'🎯'});
     if(note.scenario) nodes.push({label:note.scenario.slice(0,12),color:'#1E88E5',icon:'🏥'});
-    // Extrai linhas com bullet points
     lines.forEach(l=>{
       const t=l.trim().replace(/^[-•▸]\s/,'');
       if(/^[-•▸]\s/.test(l.trim())&&t.length>3&&t.length<40&&nodes.length<7){
         nodes.push({label:t.slice(0,18),color:'#5C6BC0',icon:'▸'});
       }
     });
-    // Extrai tags como nós
     if(note.tags){
       note.tags.split(',').slice(0,3).forEach(tag=>{
         const t=tag.trim();
         if(t&&nodes.length<8) nodes.push({label:t.slice(0,15),color:'#E65100',icon:'🏷️'});
       });
     }
-    // Se poucos nós, pega primeiras palavras de parágrafos
     lines.forEach(l=>{
       const t=l.trim();
       if(!t.startsWith('|')&&t.length>10&&nodes.length<7){
@@ -639,24 +699,28 @@ function NoteMindMap({note}){
     return nodes.slice(0,8);
   },[note]);
 
+  const aiNodes=note.mindmap?.nodes;
+  const nodes=(aiNodes&&aiNodes.length)
+    ? aiNodes.slice(0,8).map((n,i)=>({label:(n.label||'').slice(0,18),color:['#43A047','#1E88E5','#E65100','#7B1FA2','#00838F','#D32F2F','#5C6BC0','#795548'][i%8],icon:n.icon||'▸',children:n.children||[]}))
+    : localNodes;
+  const centerLabel=note.mindmap?.center||note.title;
+
   const cx=160,cy=120;
-  const total=extractNodes.length||1;
+  const total=nodes.length||1;
 
   return<svg width="100%" viewBox="0 0 320 240" style={{overflow:'visible'}}>
-    {extractNodes.map((n,i)=>{
+    {nodes.map((n,i)=>{
       const angle=(i/total)*Math.PI*2-Math.PI/2;
       const x=cx+Math.cos(angle)*95;
       const y=cy+Math.sin(angle)*75;
       return<line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke={n.color} strokeWidth={1.5} strokeOpacity={0.35} strokeDasharray="4,3"/>;
     })}
-    {/* Centro */}
     <circle cx={cx} cy={cy} r={30} fill={centerColor}/>
     <text x={cx} y={cy-5} textAnchor="middle" fill="white" fontSize={9} fontFamily="Lora,serif" fontWeight="bold">
-      {note.title.slice(0,12)}
+      {(centerLabel||'').slice(0,12)}
     </text>
     {grp&&<text x={cx} y={cy+9} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={10}>{grp.emoji}</text>}
-    {/* Nós */}
-    {extractNodes.map((n,i)=>{
+    {nodes.map((n,i)=>{
       const angle=(i/total)*Math.PI*2-Math.PI/2;
       const x=cx+Math.cos(angle)*95;
       const y=cy+Math.sin(angle)*75;
@@ -668,18 +732,54 @@ function NoteMindMap({note}){
         </text>
       </g>;
     })}
-    {extractNodes.length===0&&<text x={cx} y={cy+50} textAnchor="middle" fill="#bbb" fontSize={10} fontFamily="DM Mono,monospace">Adicione conteúdo à nota</text>}
+    {nodes.length===0&&<text x={cx} y={cy+50} textAnchor="middle" fill="#bbb" fontSize={10} fontFamily="DM Mono,monospace">Adicione conteúdo à nota</text>}
   </svg>;
 }
 
-function NoteCard({note,onEdit,onDelete,onToggleStar}){
+function NoteCard({note,onEdit,onDelete,onToggleStar,onUpdate,apiKey}){
   const[expanded,setExpanded]=useState(false);
   const[showMap,setShowMap]=useState(false);
+  const[genLoading,setGenLoading]=useState(false);
+  const[genError,setGenError]=useState('');
   const color=CARD_COLORS.find(c=>c.id===note.color)||CARD_COLORS[0];
   const grp=TUMOR_GROUPS.find(g=>g.id===note.tumor);
   const src=SOURCES.find(s=>s.id===note.source);
   const imp=IMPORTANCE.find(i=>i.id===note.importance);
   const tags=note.tags?note.tags.split(',').map(t=>t.trim()).filter(Boolean):[];
+
+  // grifos no card (modo leitura)
+  const bodyRef=useRef(null);
+  const[sel,setSel]=useTextSelection(bodyRef);
+  const addMark=(c,bold)=>{
+    if(!sel?.text)return;
+    onUpdate({...note,marks:[...(note.marks||[]),{text:sel.text,color:c,bold}]});
+    window.getSelection()?.removeAllRanges();setSel(null);
+  };
+
+  const genMindmap=async()=>{
+    if(!apiKey)return;
+    setGenLoading(true);setGenError('');
+    try{
+      const raw=await callClaude(apiKey,[{role:'user',content:`Crie um mapa mental conciso a partir desta nota de estudo de oncologia. Use APENAS o conteúdo fornecido.
+
+TÍTULO: ${note.title}
+TEMA: ${note.theme||'—'} | CENÁRIO: ${note.scenario||'—'}
+CONTEÚDO:
+${note.body.slice(0,4000)}
+
+Responda APENAS em JSON puro, sem markdown:
+{"center":"conceito central (máx 12 caracteres)","nodes":[{"label":"ramo principal (máx 18 caracteres)","icon":"1 emoji","children":["sub-item curto","sub-item curto"]}]}
+
+Regras: 4 a 7 ramos (nodes). Cada ramo deve capturar uma ideia-chave da nota (mecanismo, resultado, toxicidade, trial, etc). Sub-itens opcionais, no máx 3 por ramo, bem curtos.`}],
+      'Você é oncologista e organiza informação de forma visual e hierárquica. Seja fiel ao conteúdo, nunca invente dados.',1200);
+      const parsed=parseJSON(raw);
+      if(!parsed.nodes||!Array.isArray(parsed.nodes))throw new Error('Formato inesperado');
+      onUpdate({...note,mindmap:parsed});
+      setShowMap(true);
+    }catch(e){setGenError('Erro ao gerar: '+(e.message||'tente novamente'));}
+    setGenLoading(false);
+  };
+
   return<div className="card" style={{border:`1.5px solid ${color.border}40`,borderLeft:`4px solid ${color.border}`,borderRadius:'0 12px 12px 0',background:'#fff',marginBottom:10,overflow:'hidden'}}>
     <div style={{padding:'12px 14px 9px',background:color.bg+'60',cursor:'pointer'}} onClick={()=>setExpanded(e=>!e)}>
       <div style={{display:'flex',alignItems:'flex-start',gap:9}}>
@@ -703,25 +803,46 @@ function NoteCard({note,onEdit,onDelete,onToggleStar}){
       </div>
     </div>
     {expanded&&<div style={{padding:'12px 16px 14px'}}>
-      <RichText text={note.body}/>
-      {/* Botão mapa mental */}
-      <button onClick={e=>{e.stopPropagation();setShowMap(m=>!m);}}
-        style={{marginTop:14,padding:'6px 14px',background:showMap?grp?.color||'#1a1a2e':'#f5f5f0',color:showMap?'#fff':'#666',border:'none',borderRadius:20,fontSize:11,fontFamily:"'DM Mono',monospace",cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
-        🗺️ {showMap?'Fechar Mapa Mental':'Ver Mapa Mental'}
-      </button>
+      <div ref={bodyRef} style={{userSelect:'text',cursor:'text'}}>
+        <RichText text={note.body} highlights={(note.marks||[]).map(m=>({...m,topic:'__note__'}))} topic="__note__"/>
+      </div>
+      {(note.marks||[]).length>0&&<div style={{marginTop:8,fontSize:9,color:'#bbb',fontFamily:"'DM Mono',monospace"}}>{(note.marks||[]).length} grifo(s) · edite a nota para remover</div>}
+
+      {/* Ações: mapa mental */}
+      <div style={{marginTop:14,display:'flex',gap:8,flexWrap:'wrap'}}>
+        <button onClick={e=>{e.stopPropagation();setShowMap(m=>!m);}}
+          style={{padding:'6px 14px',background:showMap?grp?.color||'#1a1a2e':'#f5f5f0',color:showMap?'#fff':'#666',border:'none',borderRadius:20,fontSize:11,fontFamily:"'DM Mono',monospace",cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
+          🗺️ {showMap?'Fechar Mapa Mental':'Ver Mapa Mental'}
+        </button>
+        {apiKey&&<button onClick={e=>{e.stopPropagation();genMindmap();}} disabled={genLoading}
+          style={{padding:'6px 14px',background:genLoading?'#ddd':'#1a1a2e',color:'#fff',border:'none',borderRadius:20,fontSize:11,fontFamily:"'DM Mono',monospace",cursor:genLoading?'default':'pointer',display:'flex',alignItems:'center',gap:6}}>
+          {genLoading?'⏳ Gerando…':note.mindmap?'✨ Regenerar com IA':'✨ Gerar com IA'}
+        </button>}
+      </div>
+      {genError&&<div style={{marginTop:8,padding:'6px 10px',background:'#FFEBEE',borderRadius:8,fontSize:10,color:'#D32F2F',fontFamily:"'DM Mono',monospace"}}>{genError}</div>}
+
       {showMap&&<div style={{marginTop:12,background:'#fafaf8',borderRadius:12,padding:14,border:'1.5px solid #f0f0ec'}}>
         <div style={{fontSize:9,color:'#bbb',fontFamily:"'DM Mono',monospace",letterSpacing:1.5,textTransform:'uppercase',marginBottom:8}}>MAPA MENTAL · {note.title}</div>
         <NoteMindMap note={note}/>
+        {/* Sub-itens dos ramos (quando vindos da IA) */}
+        {note.mindmap?.nodes?.some(n=>n.children?.length)&&<div style={{marginTop:10,display:'flex',flexDirection:'column',gap:6}}>
+          {note.mindmap.nodes.filter(n=>n.children?.length).map((n,i)=><div key={i} style={{fontSize:11,fontFamily:"'Lora',serif"}}>
+            <span style={{fontWeight:700,color:'#1a1a2e'}}>{n.icon} {n.label}:</span>
+            <span style={{color:'#555'}}> {n.children.join(' · ')}</span>
+          </div>)}
+        </div>}
         <div style={{fontSize:10,color:'#bbb',fontFamily:"'DM Mono',monospace",marginTop:8,lineHeight:1.6}}>
-          Gerado a partir do conteúdo da nota · sem uso de créditos
+          {note.mindmap?'Gerado pela IA · salvo na nota (sem novo custo ao reabrir)':'Mapa local a partir do conteúdo · sem uso de créditos'}
         </div>
       </div>}
       <div style={{fontSize:10,color:'#ccc',marginTop:10,fontFamily:"'DM Mono',monospace"}}>{note.date}</div>
     </div>}
+
+    {sel&&<HighlightToolbar rect={sel.rect} onPick={addMark} onClose={()=>{window.getSelection()?.removeAllRanges();setSel(null);}}/>}
   </div>;
 }
 
-function NotesSection(){
+function NotesSection({apiKey}){
   const[notes,setNotes]=useState([]);
   const[loaded,setLoaded]=useState(false);
   const[view,setView]=useState('list');
@@ -735,6 +856,7 @@ function NotesSection(){
   const saveNote=note=>{setNotes(prev=>{const idx=prev.findIndex(n=>n.id===note.id);if(idx>=0){const next=[...prev];next[idx]=note;return next;}return[note,...prev];});setView('list');setEditing(null);};
   const deleteNote=id=>{if(window.confirm('Apagar esta nota?'))setNotes(prev=>prev.filter(n=>n.id!==id));};
   const toggleStar=id=>setNotes(prev=>prev.map(n=>n.id===id?{...n,starred:!n.starred}:n));
+  const updateNote=note=>setNotes(prev=>prev.map(n=>n.id===note.id?note:n));
 
   const filtered=useMemo(()=>{
     let list=view==='starred'?notes.filter(n=>n.starred):notes;
@@ -767,7 +889,6 @@ function NotesSection(){
   </div>;}
 
   return<div style={{display:'flex',flex:1,overflow:'hidden'}}>
-    {/* Filter sidebar */}
     {(view==='list'||view==='starred')&&<aside className="sidebar" style={{width:190,background:'#fff',borderRight:'1.5px solid #e8e8e4',display:'flex',flexDirection:'column',flexShrink:0,overflowY:'auto',padding:'10px 0'}}>
       <div style={{padding:'0 10px 10px'}}><input value={filters.search||''} onChange={e=>setFilters(f=>({...f,search:e.target.value}))} placeholder="🔍 Buscar…" style={{width:'100%',padding:'7px 10px',border:'1.5px solid #e8e8e4',borderRadius:9,fontSize:12,background:'#fafaf8',color:'#333',fontFamily:"'DM Mono',monospace"}}/></div>
       <Sec label="Grupo Tumoral">
@@ -782,7 +903,6 @@ function NotesSection(){
     </aside>}
 
     <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-      {/* Toolbar notas */}
       <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:16,flexWrap:'wrap'}}>
         {[{id:'list',label:'📋 Todas'},{id:'starred',label:'★ Favoritas'},{id:'new',label:'+ Nova Nota'}].map(tab=><button key={tab.id} onClick={()=>{setView(tab.id);setEditing(null);}} style={{padding:'6px 12px',background:view===tab.id?'#1a1a2e':'#f0f0ec',color:view===tab.id?'#fff':'#666',border:'none',borderRadius:20,fontSize:11,fontFamily:"'DM Mono',monospace",fontWeight:view===tab.id?700:400}}>{tab.label}</button>)}
         <div style={{flex:1}}/>
@@ -790,7 +910,7 @@ function NotesSection(){
         <span style={{fontSize:11,color:'#bbb',fontFamily:"'DM Mono',monospace"}}>{filtered.length} nota{filtered.length!==1?'s':''}</span>
       </div>
 
-      {(view==='new'||editing)&&<NoteForm initial={editing} onSave={saveNote} onCancel={()=>{setView('list');setEditing(null);}}/>}
+      {(view==='new'||editing)&&<NoteForm initial={editing} onSave={saveNote} onCancel={()=>{setView('list');setEditing(null);}} apiKey={apiKey}/>}
 
       {(view==='list'||view==='starred')&&(
         filtered.length===0
@@ -809,9 +929,9 @@ function NotesSection(){
                   <span style={{fontSize:12,fontWeight:700,color:grp.color,letterSpacing:.5,fontFamily:"'DM Mono',monospace"}}>{grp.label.toUpperCase()}</span>
                   <span style={{fontSize:10,background:grp.color+'20',color:grp.color,borderRadius:20,padding:'1px 7px',fontFamily:"'DM Mono',monospace"}}>{gn.length}</span>
                 </div>
-                {gn.map(n=><NoteCard key={n.id} note={n} onEdit={n=>{setEditing(n);setView('edit');}} onDelete={deleteNote} onToggleStar={toggleStar}/>)}
+                {gn.map(n=><NoteCard key={n.id} note={n} onEdit={n=>{setEditing(n);setView('edit');}} onDelete={deleteNote} onToggleStar={toggleStar} onUpdate={updateNote} apiKey={apiKey}/>)}
               </div>;})
-              :filtered.map(n=><NoteCard key={n.id} note={n} onEdit={n=>{setEditing(n);setView('edit');}} onDelete={deleteNote} onToggleStar={toggleStar}/>)
+              :filtered.map(n=><NoteCard key={n.id} note={n} onEdit={n=>{setEditing(n);setView('edit');}} onDelete={deleteNote} onToggleStar={toggleStar} onUpdate={updateNote} apiKey={apiKey}/>)
             }
           </div>
       )}
@@ -828,7 +948,7 @@ function Settings({apiKey,setApiKey,notes,articles}){
   return<div style={{flex:1,overflowY:'auto',padding:'32px 28px'}}>
     <div style={{maxWidth:560,margin:'0 auto'}}>
       <h2 style={{fontSize:17,fontWeight:700,color:'#1a1a2e',fontFamily:"'Lora',serif",marginBottom:6}}>⚙️ Configurações</h2>
-      <p style={{fontSize:12,color:'#888',fontFamily:"'DM Mono',monospace",marginBottom:28,lineHeight:1.7}}>Configure sua API Key para usar a leitura de PDFs com IA na seção Artigos.</p>
+      <p style={{fontSize:12,color:'#888',fontFamily:"'DM Mono',monospace",marginBottom:28,lineHeight:1.7}}>Configure sua API Key para usar a leitura de PDFs com IA na seção Artigos e gerar mapas mentais no Caderno.</p>
 
       <div style={{background:'#fff',border:'1.5px solid #e8e8e4',borderRadius:14,padding:22,marginBottom:20}}>
         <label style={{fontSize:10,color:'#aaa',letterSpacing:1.5,textTransform:'uppercase',display:'block',marginBottom:10,fontFamily:"'DM Mono',monospace"}}>🔑 Anthropic API Key</label>
@@ -884,7 +1004,6 @@ function App(){
   ];
 
   return<div style={{minHeight:'100vh',display:'flex',flexDirection:'column',background:'#f5f5f0'}}>
-    {/* Header */}
     <header style={{background:'#1a1a2e',padding:'0 20px',height:52,display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
       <div style={{display:'flex',alignItems:'center',gap:10}}>
         <span style={{fontSize:20}}>🧬</span>
@@ -900,10 +1019,9 @@ function App(){
       </div>
     </header>
 
-    {/* Content */}
     <div style={{display:'flex',flex:1,overflow:'hidden',height:'calc(100vh - 52px)'}}>
       {tab==='wiki' &&<WikiSection apiKey={apiKey}/>}
-      {tab==='notes'&&<NotesSection/>}
+      {tab==='notes'&&<NotesSection apiKey={apiKey}/>}
       {tab==='config'&&<Settings apiKey={apiKey} setApiKey={setApiKey} notes={notes} articles={articles}/>}
     </div>
   </div>;
